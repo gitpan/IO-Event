@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.1;
+$VERSION = 0.2;
 
 use strict;
 
@@ -341,10 +341,29 @@ sub read
 		unless defined $length;
 	my $tmp = substr($$ibuf, 0, $length);
 	substr($$ibuf, 0, $length) = '';
+	return undef if ! length($tmp) && ! ${*$self}{ie_fh}->eof;
 	return $tmp;
 }
 
-sub sysread { die "not implemented" }
+# from IO::Handle
+sub sysread 
+{
+	my $self = shift;
+
+	my $ibuf = \${*$self}{ie_ibuf};
+	my $length = length($$ibuf);
+
+	return undef unless $length >= $_[1]
+		|| ${*$self}{ie_fh}->eof;
+
+	(defined $_[2] ? 
+		substr ($_[0], $_[2], $_[1]) 
+		: $_[0]) 
+			= substr($$ibuf, 0, $_[1]);
+
+	substr($$ibuf, 0, $_[1]) = '';
+	return ($length-length($$ibuf));
+}
 
 # from IO::Handle
 sub syswrite

@@ -257,6 +257,44 @@ our (@tests) = (
 		repeat => 1,
 		array => 1,
 	},
+	{ #16
+		send =>		sub {
+			pusher()->print("aaabbbcccddde");
+		},
+		acquire =>	sub {
+			my $p = puller();
+			my @l;
+			my $x;
+			my $r = "12";
+			while ($x = $p->sysread($r, 3)) {
+				die unless length($r) == $x;
+				push(@l, $r);
+			}
+			return @l;
+		},
+		compare => [ "aaa", "bbb", "ccc", "ddd", "e" ],
+		repeat => 1,
+		array => 1,
+	},
+	{ #17
+		send =>		sub {
+			pusher()->print("aaabbbcccddde");
+		},
+		acquire =>	sub {
+			my $p = puller();
+			my @l;
+			my $x;
+			my $r = "12";
+			while ($x = $p->sysread($r, 3,1)) {
+				die unless length($r) == $x+1;
+				push(@l, $r);
+			}
+			return @l;
+		},
+		compare => [ "1aaa", "1bbb", "1ccc", "1ddd", "1e" ],
+		repeat => 1,
+		array => 1,
+	},
 );
 
 printf "1..%d\n", 1+@tests;
