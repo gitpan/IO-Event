@@ -55,8 +55,13 @@ MANDATORY HANDLERS
                 <$ieo>                  like IO::Handle
                 $ieo->get()             like Data::LineBuffer
                 $ieo->read()            like IO::Handle
+                $ieo->sysread()         like IO::Handle
                 $ieo->getline()         like IO::Handle
                 $ieo->getlines()        like IO::Handle
+                $ieo->getsome()         see below
+
+        At end-of-file, ie_input will only be invoked once. There may or may
+        not be data in the input buffer.
 
     ie_connection($handler, $ieo)
         Invoked when a listen()ing socket is ready to accept(). It should
@@ -70,6 +75,10 @@ MANDATORY HANDLERS
 
     ie_read_ready($handler, $underlying_file_handle)
         If autoreading is turned off then this will be invoked.
+
+    ie_werror($handler, $output_buffer_reference)
+        A write error has occured when trying to drain the write buffer.
+        Provide an empty subroutine if you don't care.
 
 OPTIONAL HANDLERS
     These handler methods will be called if they are defined but it is not
@@ -116,6 +125,7 @@ METHODS
             open
             close
             read
+            sysread
             syswrite
             print
             eof
@@ -146,6 +156,10 @@ METHODS
         for the new socket, you optionally pass a handler object/class. The
         returned filehandle is an IO::Event object.
 
+    ->getsome($amount)
+        Returns $amount bytes worth of input or undef if the request can't
+        be filled. Returns what it can at EOF.
+
     ->get()
         get() is like getline() except that it pre-chomp()s the results and
         assumes the input_record_separator is "\n". This is like get() from
@@ -157,6 +171,11 @@ METHODS
 
     ->ungetline()
         Push un-chomp()ed lines back into the input buffer.
+
+    ->xungetc()
+        This is what ungetc() should be: it pushes a string back into the
+        input buffer. This is unlike IO::Handle->ungetc which takes an
+        ordinal and pushes one character back into the the input buffer.
 
     ->handler($new_handler)
         Sets the handler object/class if $new_handler is provided. Returns
@@ -224,6 +243,28 @@ EXAMPLE SERVER
                     print $client <$client>;
             }
 
+SYSREAD and EOF
+    sysread() is incompatable with eof() because eof() uses getc(). Most of
+    the time this isn't a problem. In other words, some of the time this is
+    a problem: lines go missing.
+
+    For this reason, IO::Event never uses sysread(). In fact, if you ask it
+    to do a sysread() it does a read() for you instead.
+
+    On the other hand, at the current time no problems with syswrite have
+    come to light and IO::Event uses syswrite and never any other form of
+    write/print etc.
+
+DATA STRUCTURE
+    The filehandle object itself is a funny kind of hash reference. If you
+    want to use it to store your own data, you can. Please don't use hash
+    keys that begin "ie_" or "io_" as those are the prefixes used by
+    "IO::Event" and "IO::Socket".
+
+    The syntax is kinda funny:
+
+            ${*$filehandle}{'your_hash_key'}  
+
 SEE ALSO
     The following perl modules do something that is kinda similar to what is
     being done here:
@@ -242,10 +283,12 @@ SEE ALSO
     and thus can be used in programs that are already using Event or POE.
 
 BUGS
+    This code is still green.
+
     Nothing sane is done with excptional conditions. What causes them
     anyway?
 
 LICENSE
-    Copyright (C) 2002,2003 David Muir Sharnoff. This module may be
-    used/copied/etc on the same terms as Perl itself.
+    Copyright (C) 2002-2003 David Muir Sharnoff <muir@idiom.com>. This
+    module may be used/copied/etc on the same terms as Perl itself.
 

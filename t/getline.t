@@ -352,6 +352,34 @@ our (@tests) = (
 		array => 1,
 		desc => 'copy 5x3 chars: print method & sysread filehandle with offset',
 	},
+	{ #20
+		send =>		sub {
+			pusher()->print("aaabbbcccddde");
+		},
+		acquire =>	sub {
+			my $p = puller();
+			my $b;
+			my $c;
+			my @l;
+			while ($c = $p->getc()) {
+				if ($b && substr($b, 0, 1) eq $c) {
+					$b .= $c;
+				} elsif (! $b) {
+					$b = $c;
+				} else {
+					$p->xungetc($c);
+					push(@l, $b);
+					undef $b;
+				}
+			}
+			push(@l, $b) if defined $b;
+			return @l;
+		},
+		compare => [ "aaa", "bbb", "ccc", "ddd", "e" ],
+		repeat => 1,
+		array => 1,
+		desc => 'getc & xungetc',
+	},
 );
 
 printf "1..%d\n", 1+@tests;

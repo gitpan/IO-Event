@@ -6,17 +6,17 @@ use Event::Watcher qw(R W E T);
 use Symbol;
 use Carp;
 require IO::Handle;
-use POSIX qw(BUFSIZ);
+use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.3;
+$VERSION = 0.5;
 
 use strict;
 use diagnostics;
+my $debug = 0;
 
 my %fh_table;
-my $debug = 0;
 my %rxcache;
 
 sub new
@@ -35,7 +35,6 @@ sub new
 	${*$self}{ie_fh} = $fh;
 	${*$self}{ie_handler} = $handler;
 	${*$self}{ie_ibuf} = '';
-#	${*$self}{ie_amount_read} = 0;
 	${*$self}{ie_iwatermark} = BUFSIZ*4;
 	${*$self}{ie_obuf} = '';
 	${*$self}{ie_owatermark} = BUFSIZ*4;
@@ -71,6 +70,8 @@ sub ie_invoke
 	eval {
 		${*$self}{ie_handler}->$method($self, @args);
 	};
+
+	print STDERR "return from ${*$self}{ie_fileno} ${*$self}{ie_handler}->$method handler: $@\n" if $debug;
 	return 1 unless $@;
 	if (${*$self}{ie_handler}->can('ie_died')) {
 		eval {
@@ -84,7 +85,7 @@ sub ie_invoke
 
 #
 # we use a single event handler so that the AUTOLOAD
-# function can try a sinle $event object when looking for
+# function can try a single $event object when looking for
 # methods
 #
 sub ie_dispatch
@@ -100,25 +101,34 @@ sub ie_dispatch
 			my $ibuf = \${*$self}{ie_ibuf};
 			#my $opos = pos($$ibuf);
 			my $ol = length($$ibuf);
+#my $y = $$ibuf;
+			my $rv = $fh->read($$ibuf, BUFSIZ, $ol);
 
-			my $rv = sysread($fh, $$ibuf, POSIX::BUFSIZ);
-#			${*$self}{ie_amount_read} += $rv
-#				if defined $rv;
-			
+			# errors other than EAGAIN aren't recoverable
+			${*$self}{ie_readclosed} = ! defined($rv) && $! != EAGAIN;
+
 #my $x = $$ibuf;
+#$y =~ s/\n/\\n/g;
 #$x =~ s/\n/\\n/g;
-#print "sysread of ${*$self}{ie_fileno} got $rv bytes: '$x'\n";
+#print "read of ${*$self}{ie_fileno} got $rv bytes: '$x' (before '$y')\n" if $debug;
+
 			$self->ie_invoke(1, 'ie_input', $ibuf);
+#$x = $$ibuf;
+#$x =~ s/\n/\\n/g;
+#print "and after calling ie_input: '$x'\n" if $debug;
 
-			if ($rv == 0 && $fh->eof) {
-				$self->ie_invoke(0, 'ie_eof', $ibuf);
-			} else {
-				my $wm = ${*$self}{ie_iwatermark};
-				$handler->ie_rhighwater($self, $ibuf)
-					if $ol < $wm && length($$ibuf) >= $wm;
-
-				$handler->ie_rlowwater($self, $ibuf)
-					if $ol >= $wm && length($$ibuf) < $wm;
+			my $wm = ${*$self}{ie_iwatermark};
+			$handler->ie_rlowwater($self, $ibuf)
+				if $ol >= $wm && length($$ibuf) < $wm;
+			$handler->ie_rhighwater($self, $ibuf)
+				if $ol < $wm && length($$ibuf) >= $wm;
+			if (${*$self}{ie_readclosed}) {
+				if (length($$ibuf)) {
+					# this is bad.  We won't be invoking anything again.
+				} else {
+					$self->ie_invoke(0, 'ie_eof', $ibuf)
+						unless ${*$self}{ie_eofinvoked}++;
+				}
 			}
 		} else {
 			$self->ie_invoke(1, 'ie_read_ready', $fh);
@@ -137,9 +147,13 @@ sub ie_dispatch
 				$rv = syswrite($fh, $$obuf);
 				if (defined $rv) {
 					substr($$obuf, 0, $rv) = '';
+				} elsif ($! == EAGAIN) {
+					# this shouldn't happen, but
+					# it's not that big a deal
 				} else {
-					# XXX die instead?
-					warn "write to $fh: $rv\n";
+					# the file descriptor is toast
+					$self->ie_invoke(0, 'ie_werror', $obuf);
+					${*$self}{ie_writeclosed} = $!;
 				}
 			}
 			$self->ie_invoke(0, 'ie_output', $obuf, $rv);
@@ -152,7 +166,16 @@ sub ie_dispatch
 		}
 	}
 	if ($got & E) {
-		$event->ie_invoke(0, 'ie_exception');
+		if ($fh->eof) {
+			if (length(${*$self}{ie_ibuf})) {
+				$self->ie_invoke(0, 'ie_input', \${*$self}{ie_ibuf});
+			} else {
+				$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
+					unless ${*$self}{ie_eofinvoked}++;
+			}
+		} else {
+			$self->ie_invoke(0, 'ie_exception');
+		}
 	}
 	if ($got & T) {
 		if (${*$self}{ie_connecting} 
@@ -166,6 +189,7 @@ sub ie_dispatch
 			$event->ie_invoke(0, 'ie_timer');
 		}
 	}
+#print STDERR "dispatch done\n" if $debug;
 }
 
 # get/set autoread
@@ -173,8 +197,10 @@ sub autoread
 {
 	my $self = shift;
 	my $old = ${*$self}{ie_autoread};
-	${*$self}{ie_autoread} = $_[0]
-		if @_;
+	if (@_) {
+		${*$self}{ie_autoread} = $_[0];
+		delete ${*$self}{ie_readclosed};
+	}
 	return $old;
 }
 
@@ -246,12 +272,27 @@ sub handler
 	return $old;
 }
 
+sub getsome
+{
+	my ($self, $length) = @_;
+	return undef unless ${*$self}{ie_autoread};
+	my $ibuf = \${*$self}{ie_ibuf};
+	$length = length($$ibuf)
+		unless defined $length;
+	my $tmp = substr($$ibuf, 0, $length);
+	substr($$ibuf, 0, $length) = '';
+	return undef if ! length($tmp) && ! ${*$self}{ie_fh}->eof;
+	return $tmp;
+}
+
 # from IO::Socket
 sub connect
 {
 	my $self = shift;
 	my $fh = ${*$self}{ie_fh};
 	my $rv = $fh->connect(@_);
+	delete ${*$self}{ie_writeclosed};
+	delete ${*$self}{ie_readclosed};
 	unless($fh->connected()) {
 		${*$self}{ie_connecting} = 1;
 		my $event = ${*$self}{ie_event};
@@ -326,39 +367,52 @@ sub close
 }
 
 # from IO::Handle
-sub open
-{
-	my ($self) = @_;
+sub open 
+{ 
+	my $self = shift;
 	my $fh = ${*$self}{ie_fh};
-	$fh->open(@_);
+	$self->close()
+		if $fh->opened;
+	$self->ie_deregister();
+	delete ${*$self}{ie_writeclosed};
+	delete ${*$self}{ie_readclosed};
+	my $r;
+	if (@_ == 1) {
+		$r = CORE::open($fh, $_[0]);
+	} elsif (@_ == 2) {
+		$r = CORE::open($fh, $_[0], $_[1]);
+	} elsif (@_ == 3) {
+		$r = CORE::open($fh, $_[0], $_[1], $_[4]);
+	} elsif (@_ > 3) {
+		$r = CORE::open($fh, $_[0], $_[1], $_[4], @_);
+	} else {
+		confess("open w/o enoug args");
+	}
+	return undef unless defined $r;
+	$self->ie_register();
+	return $r;
 }
 
-# from IO::Handle
-sub read
-{
-	my ($self, $length) = @_;
-	my $ibuf = \${*$self}{ie_ibuf};
-	$length = length($$ibuf)
-		unless defined $length;
-	my $tmp = substr($$ibuf, 0, $length);
-	substr($$ibuf, 0, $length) = '';
-	return undef if ! length($tmp) && ! ${*$self}{ie_fh}->eof;
-	return $tmp;
-}
 
-# from IO::Handle
+# from IO::Handle		VAR LENGTH [OFFSET]
+#
+# this returns nothing unless there is enough to fill
+# the request or it's at eof
+#
 sub sysread 
 {
 	my $self = shift;
 
+	return ${*$self}{ie_fh}->read(shift, shift, shift)
+		unless ${*$self}{ie_autoread};
+
 	my $ibuf = \${*$self}{ie_ibuf};
 	my $length = length($$ibuf);
 
-	return undef unless $length >= $_[1]
-		|| ${*$self}{ie_fh}->eof;
+	return undef unless $length >= $_[1] || ${*$self}{ie_fh}->eof;
 
 	(defined $_[2] ? 
-		substr ($_[0], $_[2], $_[1]) 
+		substr ($_[0], $_[2], length($_[0]))
 		: $_[0]) 
 			= substr($$ibuf, 0, $_[1]);
 
@@ -381,6 +435,7 @@ sub syswrite
 sub get
 {
 	my $self = shift;
+	return undef unless ${*$self}{ie_autoread};
 	my $ibuf = \${*$self}{ie_ibuf};
 	my $fh = ${*$self}{ie_fh};
 	my $irs = "\n";
@@ -411,10 +466,16 @@ sub unget
 sub getline 
 { 
 	my $self = shift;
+	return undef unless ${*$self}{ie_autoread};
 	my $ibuf = \${*$self}{ie_ibuf};
 	my $fh = ${*$self}{ie_fh};
 	my $irs = exists ${*$self}{ie_irs} ? ${*$self}{ie_irs} : $/;
 	my $line;
+
+#my $x;
+#$x = $$ibuf;
+#$x =~ s/\n/\\n/g;
+#print "ibuf1='$x'\n";
 
 	# perl's handling if input record separators is 
 	# not completely simple.  
@@ -423,11 +484,11 @@ sub getline
 	if ($irs =~ /^\d/ && int($irs)) {
 		if ($irs > 0 && length($$ibuf) >= $irs) {
 			$line = substr($$ibuf, 0, $irs);
-		} elsif ($fh->eof) {
+		} elsif (${*$self}{ie_fh}->eof) {
 			$line = $$ibuf;
 		} 
 	} elsif (! defined $irs) {
-		if ($fh->eof) {
+		if (${*$self}{ie_fh}->eof) {
 			$line = $$ibuf;
 		} 
 	} elsif ($irs eq '') {
@@ -442,12 +503,16 @@ sub getline
 	if (defined $index) {
 		$line = $index > -1
 			? substr($$ibuf, 0, $index+length($irs))
-			: ($fh->eof
-				? $$ibuf
-				: undef);
+			: (${*$self}{ie_fh}->eof ? $$ibuf : undef);
 	}
-	return undef unless length($line);
+	return undef unless defined($line) && length($line);
 	substr($$ibuf, 0, length($line)) = '';
+#$x = $$ibuf;
+#$x =~ s/\n/\\n/g;
+#print "ibuf2='$x'\n";
+#$x = $line;
+#$x =~ s/\n/\\n/g;
+#print "line='$x'\n";
 	return $line;
 }
 
@@ -470,6 +535,7 @@ sub ungetline
 sub getlines
 {
 	my $self = shift;
+	return undef unless ${*$self}{ie_autoread};
 	my $ibuf = \${*$self}{ie_ibuf};
 	#my $ol = length($$ibuf);
 	my $fh = ${*$self}{ie_fh};
@@ -480,8 +546,7 @@ sub getlines
 			@lines = unpack("(a$irs)*", $$ibuf);
 			$$ibuf = '';
 			$$ibuf = pop(@lines)
-				if length($lines[$#lines]) != $irs
-					&& ! $fh->eof;
+				if length($lines[$#lines]) != $irs && ! $fh->eof;
 		} else {
 			return undef unless $fh->eof;
 			@lines = $$ibuf;
@@ -496,17 +561,16 @@ sub getlines
 		$$ibuf =~ s/^\n+//;
 #my $x = $$ibuf;
 #$x =~ s/\n/\\n/g;
-#print "BEFORE: $x\n";
+#print "BEFORE: $x\n" if $debug;
 		@lines = grep($_ ne '', split(/(.*?\n\n)\n*/s, $$ibuf));
 #my (@x) = @lines;
 #for my $x (@x) {
 #$x =~ s/\n/\\n/g;
 #}
-#print 'AFTER: <',join("><",@x),">\n";
+#print 'AFTER: <',join("><",@x),">\n" if $debug;
 		$$ibuf = '';
 		$$ibuf = pop(@lines)
-			if substr($lines[$#lines], -2) ne "\n\n"
-				&& ! $fh->eof;
+			if substr($lines[$#lines], -2) ne "\n\n" && ! $fh->eof;
 	} else {
 		# multicharacter
 		#$rxcache{$irs} = qr/(?<=\Q$irs\E)/
@@ -518,8 +582,7 @@ sub getlines
 			unless @lines;
 		$$ibuf = '';
 		$$ibuf = pop(@lines)
-			if substr($lines[$#lines], 0-length($irs)) ne $irs
-				&& ! $fh->eof;
+			if substr($lines[$#lines], 0-length($irs)) ne $irs && ! $fh->eof;
 	}
 	return @lines;
 }
@@ -529,15 +592,29 @@ sub ungetc
 {
 	my ($self, $ord) = @_;
 	my $ibuf = \${*$self}{ie_ibuf};
-	#my $opos = pos($$ibuf);
-	$$ibuf .= chr($ord);
-	#pos($$ibuf) = $opos;
+	substr($$ibuf, 0, 0) = chr($ord);
+}
+
+# what ungetc should have been
+sub xungetc
+{
+	my ($self, $stuff) = @_;
+	my $ibuf = \${*$self}{ie_ibuf};
+	substr($$ibuf, 0, 0) = $stuff;
+}
+
+# from IO::Handle
+sub getc
+{
+	my ($self) = @_;
+	$self->getsome(1);
 }
 
 # from IO::Handle
 sub print
 {
 	my ($self, @data) = @_;
+	$! = ${*$self}{ie_writeclosed} && return undef if ${*$self}{ie_writeclosed};
 	my $ol;
 	if ($ol = length(${*$self}{ie_obuf})) {
 		${*$self}{ie_obuf} .= join('', @data);
@@ -563,7 +640,7 @@ sub eof
 {
 	my ($self) = @_;
 	return 0 if length(${*$self}{ie_ibuf});
-	return ${*$self}{ie_fh}->eof();
+	return ${*$self}{ie_fh}->eof;
 }
 
 sub DESTROY
@@ -627,8 +704,6 @@ sub TIEHANDLE
 	return $self;
 }
 
-sub PRINT { goto &print; }
-
 sub PRINTF
 {
 	my $self = shift;
@@ -638,71 +713,37 @@ sub PRINTF
 sub READLINE 
 {
 	my $self = shift;
-	if (wantarray) {
-		return $self->getlines;
-	} else {
-		return $self->getline;
-	}
+	wantarray ? $self->getlines : $self->getline;
 }
 
-sub GETC
-{
-	my ($self) = @_;
-	$self->read(1);
-}
+no warnings;
 
-sub READ {
-	my $self = shift;
-	my $bufref = \$_[0];
-	my (undef,$len,$offset) = @_;
+*PRINT = \&print;
 
-	return undef if ! length(${*$self}{ie_ibuf}) && $self->eof;
-	$$bufref = '' unless defined $$bufref;
-	my $willread = length(${*$self}{ie_ibuf});
-	$willread = $len if $willread > $len;
-	my $oldlen = length($$bufref);
-	$offset = 0 unless defined $offset;
-	substr($$bufref, $offset, length($$bufref)) = $self->read($willread);
-	return $willread;
-}
+*READ = \&sysread;
 
-sub WRITE { goto &syswrite; }
+# from IO::Handle
+*read = \&sysread;
 
-sub CLOSE { goto &close; }
+*WRITE = \&syswrite;
 
-sub EOF { goto &eof; }
+*CLOSE = \&close;
 
-sub TELL { goto &tell; }
+*EOF = \&eof;
 
-sub FILENO { goto &fileno; }
+*TELL = \&tell;
 
-sub SEEK { goto &seek; }
+*FILENO = \&fileno;
 
-sub BINMODE { goto &binmode; }
+*SEEK = \&seek;
 
-sub OPEN 
-{ 
-	my $self = shift;
-	my $fh = ${*$self}{ie_fh};
-	$self->close()
-		if $fh->opened;
-	$self->ie_deregister();
-	my $r;
-	if (@_ == 1) {
-		$r = CORE::open($fh, $_[0]);
-	} elsif (@_ == 2) {
-		$r = CORE::open($fh, $_[0], $_[1]);
-	} elsif (@_ == 3) {
-		$r = CORE::open($fh, $_[0], $_[1], $_[4]);
-	} elsif (@_ > 3) {
-		$r = CORE::open($fh, $_[0], $_[1], $_[4], @_);
-	} else {
-		confess("open w/o enoug args");
-	}
-	return undef unless defined $r;
-	$self->ie_register();
-	return $r;
-}
+*BINMODE = \&binmode;
+
+*OPEN = \&open;
+
+*GETC = \&getc;
+
+use warnings;
 
 package IO::Event::Socket::INET;
 

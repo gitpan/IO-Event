@@ -76,8 +76,13 @@ methods for getting data:
 	<$ieo>			like IO::Handle
 	$ieo->get()		like Data::LineBuffer
 	$ieo->read()		like IO::Handle
+	$ieo->sysread()		like IO::Handle
 	$ieo->getline()		like IO::Handle
 	$ieo->getlines()	like IO::Handle
+	$ieo->getsome()		see below
+
+At end-of-file, ie_input will only be invoked once.  There
+may or may not be data in the input buffer.  
 
 =item ie_connection($handler, $ieo)
 
@@ -93,6 +98,11 @@ It should call accept:
 =item ie_read_ready($handler, $underlying_file_handle)
 
 If autoreading is turned off then this will be invoked.
+
+=item ie_werror($handler, $output_buffer_reference)
+
+A write error has occured when trying to drain the write
+buffer.  Provide an empty subroutine if you don't care.
 
 =back
 
@@ -155,6 +165,7 @@ methods behave like their C<IO> (mostly C<IO::Socket>) counterparts
 	open
 	close
 	read
+	sysread
 	syswrite
 	print
 	eof
@@ -189,6 +200,11 @@ specifier for the new socket, you optionally pass a
 handler object/class.   The returned filehandle is an
 IO::Event object.
 
+=item ->getsome($amount)
+
+Returns C<$amount> bytes worth of input or undef if the request
+can't be filled.  Returns what it can at EOF.
+
 =item ->get()
 
 get() is like getline() except that it pre-chomp()s the
@@ -203,6 +219,13 @@ This is like unget() from Data::LineBuffer.
 =item ->ungetline()
 
 Push un-chomp()ed lines back into the input buffer.
+
+=item ->xungetc()
+
+This is what ungetc() should be: it pushes a string back into
+the input buffer.  This is unlike IO::Handle->ungetc which
+takes an ordinal and pushes one character back into the 
+the input buffer.
 
 =item ->handler($new_handler)
 
@@ -283,6 +306,29 @@ loop for this module.
 		print $client <$client>;
 	}
 
+=head1 SYSREAD and EOF
+
+sysread() is incompatable with eof() because eof() uses
+getc().  Most of the time this isn't a problem.  In other words,
+some of the time this is a problem: lines go missing.
+
+For this reason, IO::Event never uses sysread().  In fact,
+if you ask it to do a sysread() it does a read() for you instead.
+
+On the other hand, at the current time no problems with syswrite
+have come to light and IO::Event uses syswrite and never any other
+form of write/print etc.
+
+=head1 DATA STRUCTURE
+
+The filehandle object itself is a funny kind of hash reference.
+If you want to use it to store your own data, you can.  Please 
+don't use hash keys that begin C<ie_> or C<io_> as those are the
+prefixes used by C<IO::Event> and C<IO::Socket>.  
+
+The syntax is kinda funny:
+
+	${*$filehandle}{'your_hash_key'}  
 
 =head1 SEE ALSO
 
@@ -305,12 +351,14 @@ using Event or POE.
 
 =head1 BUGS
 
+This code is still green. 
+
 Nothing sane is done with excptional conditions.  What causes
 them anyway?
 
 =head1 LICENSE
 
-Copyright (C) 2002,2003 David Muir Sharnoff.
+Copyright (C) 2002-2003 David Muir Sharnoff <muir@idiom.com>.
 This module may be used/copied/etc on the same terms as Perl 
 itself.
 
