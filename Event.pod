@@ -152,6 +152,15 @@ if set using thing underlying Event object.
 Invoked when an exceptional condition arises on the 
 underlying filehandle
 
+=item ie_outputoverflow($handler, $ieo, $overflowing, $output_buffer_reference)
+
+Invoked when there is too much output data and the output buffers
+are overflowing.  You can take some action to generate less output.
+This will be invoked exactly once (with $overflowing == 1) when 
+there is too much data in the buffer and then exactly once again
+(with $overflowing == 0) when there is no longer too much data in the
+buffer.
+
 =back
 
 =head1 METHODS
@@ -247,6 +256,24 @@ for connections (instead of receiving data).  A passed
 parameter of 0 does the opposite.  Returns the old value.
 This is mostly used internally in IO::Event.
 
+=item ->input_record_separator($new_sep)
+
+IO::Handle doesn't allow input_record_separator's on a per filehandle
+basis.  IO::Event does.  If you don't ever set a filehandle's input
+record separator, then it contineously defaults to the current value
+of C<$/>.  If you set it, then it will use your value and never
+look at C<$/> again.
+
+=item ->readevents($readevents)
+
+Get/set listening for read-ready events on the underlying
+filehandle.  This could be used by ie_outputoverflow to
+control input flows.  
+
+=item ->output_bufsize($output_bufsize)
+
+Get/set the size of the output buffer.
+
 =item ->autoread($autoread)
 
 Get/set automatic reading if data when data can be read.
@@ -260,15 +287,16 @@ data.
 =item ->drain()
 
 Used to start looking for write-ready events on the underlying
-filehandle.
+filehandle.  In normal operation this is handled automatically.
 
-=item ->input_record_separator($new_sep)
+=item ->reentrant($reentrant)
 
-IO::Handle doesn't allow input_record_separator's on a per filehandle
-basis.  IO::Event does.  If you don't ever set a filehandle's input
-record separator, then it contineously defaults to the current value
-of C<$/>.  If you set it, then it will use your value and never
-look at C<$/> again.
+Get/set reentrant callbacks.  By default, IO::Event avoids making
+reentrant callbacks.  This is good because your code is less likely
+to break.  This is bad because you won't learn about things right away.
+For example, you will not learn the the output buffer is overflowing
+during print().  You'll have to wait for the output buffer to begin
+draining to find out.  This could be a problem.
 
 =back
 
@@ -351,7 +379,8 @@ using Event or POE.
 
 =head1 BUGS
 
-This code is still green. 
+This code is still greenish.   The test suite only covers 40% 
+of the code.
 
 Nothing sane is done with excptional conditions.  What causes
 them anyway?

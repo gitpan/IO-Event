@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.5;
+$VERSION = 0.501;
 
 use strict;
 use diagnostics;
@@ -18,6 +18,9 @@ my $debug = 0;
 
 my %fh_table;
 my %rxcache;
+
+my @pending_callbacks;
+my $in_callback;
 
 sub new
 {
@@ -35,9 +38,8 @@ sub new
 	${*$self}{ie_fh} = $fh;
 	${*$self}{ie_handler} = $handler;
 	${*$self}{ie_ibuf} = '';
-	${*$self}{ie_iwatermark} = BUFSIZ*4;
 	${*$self}{ie_obuf} = '';
-	${*$self}{ie_owatermark} = BUFSIZ*4;
+	${*$self}{ie_obufsize} = BUFSIZ*4;
 	${*$self}{ie_autoread} = 1;
 	${*$self}{ie_desc} = $description || "wrapper for $fh";
 
@@ -48,6 +50,14 @@ sub new
 	return $self;
 }
 
+sub reset
+{
+	my $self = shift;
+	delete ${*$self}{ie_writeclosed};
+	delete ${*$self}{ie_readclosed};
+	delete ${*$self}{ie_eofinvoked};
+	delete ${*$self}{ie_overflowinvoked};
+}
 
 # mark as listener
 sub listener
@@ -63,20 +73,35 @@ sub listener
 sub ie_invoke
 {
 	my ($self, $required, $method, @args) = @_;
+
+	if ($in_callback && ! $self->{ie_reentrant}) {
+		# we'll do this later
+		push(@pending_callbacks, [ $self, $required, $method, @args ]);
+		return 1;
+	}
+
+	my $ic = $in_callback;
+	$in_callback = 1;
+
 	print STDERR "invoking ${*$self}{ie_fileno} ${*$self}{ie_handler}->$method\n"
 		if $debug;
-		
+
 	return 0 if ! $required && ! ${*$self}{ie_handler}->can($method);
 	eval {
 		${*$self}{ie_handler}->$method($self, @args);
 	};
 
 	print STDERR "return from ${*$self}{ie_fileno} ${*$self}{ie_handler}->$method handler: $@\n" if $debug;
+
+	$in_callback = $ic;
+
 	return 1 unless $@;
 	if (${*$self}{ie_handler}->can('ie_died')) {
+		$in_callback = 1;
 		eval {
 			${*$self}{ie_handler}->ie_died($self, $method, $@);
 		};
+		$in_callback = $ic;
 	} else {
 		confess $@;
 	}
@@ -92,44 +117,12 @@ sub ie_dispatch
 {
 	my ($self, $event) = @_;
 	my $fh = ${*$self}{ie_fh};
-	my $handler = ${*$self}{ie_handler};
 	my $got = $event->got;
 	if ($got & R) {
 		if (${*$self}{ie_listener}) {
 			$self->ie_invoke(1, 'ie_connection');
 		} elsif (${*$self}{ie_autoread}) {
-			my $ibuf = \${*$self}{ie_ibuf};
-			#my $opos = pos($$ibuf);
-			my $ol = length($$ibuf);
-#my $y = $$ibuf;
-			my $rv = $fh->read($$ibuf, BUFSIZ, $ol);
-
-			# errors other than EAGAIN aren't recoverable
-			${*$self}{ie_readclosed} = ! defined($rv) && $! != EAGAIN;
-
-#my $x = $$ibuf;
-#$y =~ s/\n/\\n/g;
-#$x =~ s/\n/\\n/g;
-#print "read of ${*$self}{ie_fileno} got $rv bytes: '$x' (before '$y')\n" if $debug;
-
-			$self->ie_invoke(1, 'ie_input', $ibuf);
-#$x = $$ibuf;
-#$x =~ s/\n/\\n/g;
-#print "and after calling ie_input: '$x'\n" if $debug;
-
-			my $wm = ${*$self}{ie_iwatermark};
-			$handler->ie_rlowwater($self, $ibuf)
-				if $ol >= $wm && length($$ibuf) < $wm;
-			$handler->ie_rhighwater($self, $ibuf)
-				if $ol < $wm && length($$ibuf) >= $wm;
-			if (${*$self}{ie_readclosed}) {
-				if (length($$ibuf)) {
-					# this is bad.  We won't be invoking anything again.
-				} else {
-					$self->ie_invoke(0, 'ie_eof', $ibuf)
-						unless ${*$self}{ie_eofinvoked}++;
-				}
-			}
+			$self->ie_input();
 		} else {
 			$self->ie_invoke(1, 'ie_read_ready', $fh);
 		}
@@ -163,16 +156,22 @@ sub ie_dispatch
 					$event->poll($event->poll & ~(W));
 				}
 			}
+			if (length($$obuf) > ${*$self}{ie_obufsize}) {
+				$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
+				${*$self}{ie_overflowinvoked} = 1;
+			} elsif (${*$self}{ie_overflowinvoked}) {
+				$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
+				${*$self}{ie_overflowinvoked} = 0;
+			}
 		}
 	}
 	if ($got & E) {
 		if ($fh->eof) {
 			if (length(${*$self}{ie_ibuf})) {
 				$self->ie_invoke(0, 'ie_input', \${*$self}{ie_ibuf});
-			} else {
-				$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
-					unless ${*$self}{ie_eofinvoked}++;
-			}
+			} 
+			$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
+				unless ${*$self}{ie_eofinvoked}++;
 		} else {
 			$self->ie_invoke(0, 'ie_exception');
 		}
@@ -189,7 +188,80 @@ sub ie_dispatch
 			$event->ie_invoke(0, 'ie_timer');
 		}
 	}
-#print STDERR "dispatch done\n" if $debug;
+	while (@pending_callbacks) {
+		my ($ie, $req, $meth, @args) = @{shift @pending_callbacks};
+		if (defined &$meth) {
+			$ie->$meth();
+		} else {
+			$ie->ie_invoke($req, $meth, @args);
+		}
+	}
+}
+
+# same name as handler since we want to control how ie_input is called
+sub ie_input
+{
+	my $self = shift;
+	my $ibuf = \${*$self}{ie_ibuf};
+
+	# 
+	# We'll loop just to make sure we don't miss an event
+	# 
+	for (;;) {
+		my $ol = length($$ibuf);
+		my $rv = ${*$self}{ie_fh}->read($$ibuf, BUFSIZ, $ol);
+
+		if ($rv) {
+			delete ${*$self}{ie_readclosed};
+		} elsif (defined($rv)) {
+			# must be 0 and closed!
+			${*$self}{ie_readclosed} = 1;
+			last;
+		} elsif ($! = EAGAIN) {
+			last;
+		} else {
+			# errors other than EAGAIN aren't recoverable
+			${*$self}{ie_readclosed} = $!;
+		}
+
+		$self->ie_invoke(1, 'ie_input', $ibuf);
+	}
+
+	if (${*$self}{ie_readclosed}) {
+		$self->ie_invoke(1, 'ie_input', $ibuf)
+			if length($$ibuf);
+		$self->ie_invoke(0, 'ie_eof', $ibuf)
+			unless ${*$self}{ie_eofinvoked}++;
+	}
+}
+
+sub reentrant
+{
+	my $self = shift;
+	my $old = ${*$self}{ie_reentrant};
+	if (@_) {
+		${*$self}{ie_reentrant} = $_[0];
+	}
+	return $old;
+}
+	
+sub output_bufsize
+{
+	my $self = shift;
+	my $old = ${*$self}{ie_obufsize};
+	if (@_) {
+		${*$self}{ie_obufsize} = $_[0];
+		if (length(${*$self}{ie_obuf}) > ${*$self}{ie_obufsize}) {
+			$self->ie_invoke(0, 'ie_outputoverflow', 1, ${*$self}{ie_obuf});
+			${*$self}{ie_overflowinvoked} = 1;
+		} elsif (${*$self}{ie_overflowinvoked}) {
+			$self->ie_invoke(0, 'ie_outputoverflow', 0, ${*$self}{ie_obuf});
+			${*$self}{ie_overflowinvoked} = 0;
+		}
+		# while this should trigger callbacks, we don't want to assume
+		# that our caller's code is re-enterant.
+	}
+	return $old;
 }
 
 # get/set autoread
@@ -200,6 +272,21 @@ sub autoread
 	if (@_) {
 		${*$self}{ie_autoread} = $_[0];
 		delete ${*$self}{ie_readclosed};
+	}
+	return $old;
+}
+
+# start watching for write-ready events
+sub readevents
+{
+	my $self = shift;
+	my $event = ${*$self}{ie_event};
+	my $poll = $event->poll;
+	my $old = !! $poll & R;
+	if (@_ > 1) {
+		$poll = $poll & ~R;
+		$poll = $poll | R if $_[0];
+		$event->poll($poll);
 	}
 	return $old;
 }
@@ -291,8 +378,7 @@ sub connect
 	my $self = shift;
 	my $fh = ${*$self}{ie_fh};
 	my $rv = $fh->connect(@_);
-	delete ${*$self}{ie_writeclosed};
-	delete ${*$self}{ie_readclosed};
+	$self->reset;
 	unless($fh->connected()) {
 		${*$self}{ie_connecting} = 1;
 		my $event = ${*$self}{ie_event};
@@ -340,8 +426,8 @@ sub accept
 	$handler = ${*$self}{ie_handler} 
 		unless defined $handler;
 	my $new = IO::Event->new($newfh, $handler, $desc);
-	${*$new}{ie_iwatermark} = ${*$self}{ie_iwatermark};
-	${*$new}{ie_owatermark} = ${*$self}{ie_owatermark};
+	${*$new}{ie_obufsize} = ${*$self}{ie_obufsize};
+	${*$new}{ie_reentrant} = ${*$self}{ie_reentrant};
 	return $new;
 }
 
@@ -362,8 +448,7 @@ sub close
 {
 	my ($self) = @_;
 	$self->ie_deregister();
-	my $fh = ${*$self}{ie_fh};
-	$fh->close();
+	${*$self}{ie_fh}->close();
 }
 
 # from IO::Handle
@@ -374,8 +459,7 @@ sub open
 	$self->close()
 		if $fh->opened;
 	$self->ie_deregister();
-	delete ${*$self}{ie_writeclosed};
-	delete ${*$self}{ie_readclosed};
+	$self->reset;
 	my $r;
 	if (@_ == 1) {
 		$r = CORE::open($fh, $_[0]);
@@ -472,10 +556,6 @@ sub getline
 	my $irs = exists ${*$self}{ie_irs} ? ${*$self}{ie_irs} : $/;
 	my $line;
 
-#my $x;
-#$x = $$ibuf;
-#$x =~ s/\n/\\n/g;
-#print "ibuf1='$x'\n";
 
 	# perl's handling if input record separators is 
 	# not completely simple.  
@@ -507,12 +587,6 @@ sub getline
 	}
 	return undef unless defined($line) && length($line);
 	substr($$ibuf, 0, length($line)) = '';
-#$x = $$ibuf;
-#$x =~ s/\n/\\n/g;
-#print "ibuf2='$x'\n";
-#$x = $line;
-#$x =~ s/\n/\\n/g;
-#print "line='$x'\n";
 	return $line;
 }
 
@@ -559,15 +633,7 @@ sub getlines
 	} elsif ($irs eq '') {
 		# paragraphish mode.
 		$$ibuf =~ s/^\n+//;
-#my $x = $$ibuf;
-#$x =~ s/\n/\\n/g;
-#print "BEFORE: $x\n" if $debug;
 		@lines = grep($_ ne '', split(/(.*?\n\n)\n*/s, $$ibuf));
-#my (@x) = @lines;
-#for my $x (@x) {
-#$x =~ s/\n/\\n/g;
-#}
-#print 'AFTER: <',join("><",@x),">\n" if $debug;
 		$$ibuf = '';
 		$$ibuf = pop(@lines)
 			if substr($lines[$#lines], -2) ne "\n\n" && ! $fh->eof;
@@ -614,25 +680,31 @@ sub getc
 sub print
 {
 	my ($self, @data) = @_;
-	$! = ${*$self}{ie_writeclosed} && return undef if ${*$self}{ie_writeclosed};
+	$! = ${*$self}{ie_writeclosed} && return undef 	
+		if ${*$self}{ie_writeclosed};
 	my $ol;
-	if ($ol = length(${*$self}{ie_obuf})) {
-		${*$self}{ie_obuf} .= join('', @data);
-		${*$self}{ie_handler}->ie_whighwater(1)
-			if length(${*$self}{ie_obuf}) >= ${*$self}{ie_owatermark}
-				&& $ol < ${*$self}{ie_owatermark}
-				&& ${*$self}{ie_handler}->can('ie_whighwater');
-		return (length(${*$self}{ie_obuf}) - $ol);
+	my $rv;
+	my $obuf = \${*$self}{ie_obuf};
+	if ($ol = length($$obuf)) {
+		$$obuf .= join('', @data);
+		$rv = length($$obuf) - $ol;
 	} else {
 		my $fh = ${*$self}{ie_fh};
 		my $data = join('', @data);
-		my $rv = CORE::syswrite($fh, $data);
+		$rv = CORE::syswrite($fh, $data);
 		if ($rv < length($data)) {
-			${*$self}{ie_obuf} = substr($data, $rv, length($data)-$rv);
+			$$obuf = substr($data, $rv, length($data)-$rv);
 			$self->ie_drain;
 		}
-		return $rv;
 	}
+	if (length($$obuf) > ${*$self}{ie_obufsize}) {
+		$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
+		${*$self}{ie_overflowinvoked} = 1;
+	} elsif (${*$self}{ie_overflowinvoked}) {
+		$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
+		${*$self}{ie_overflowinvoked} = 0;
+	}
+	return $rv;
 }
 
 # from IO::Handle

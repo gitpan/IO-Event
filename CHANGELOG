@@ -1,3 +1,17 @@
+= 2003/11/29	0.501
+
+Changed version numbering 'cause we don't want to get to 1.0 quite yet.
+
+Add reentrantcy controls 
+
+Add readevents()
+
+Add output buffer size related code.
+
+Bugfix: remove input watermark code
+Bugfix: retry read() until EAGAIN prevents lost events
+Bugfix: don't suppress ie_eof after reopen or connect.
+
 = 2003/11/26	0.5
 
 Lots more bugs fixed.  Documentation added.  Test case added.
