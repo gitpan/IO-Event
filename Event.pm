@@ -10,11 +10,12 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.504;
+$VERSION = 0.505;
 
 use strict;
 use warnings;
 my $debug = 0;
+my $edebug = 0;
 
 my %fh_table;
 my %rxcache;
@@ -118,87 +119,104 @@ sub ie_invoke
 #
 sub ie_dispatch
 {
-	my ($self, $event) = @_;
+	my ($self, $ievent) = @_;
 	my $fh = ${*$self}{ie_fh};
-	my $got = $event->got;
-	if ($got & R) {
-#print "read dispatch\n";
-		if (${*$self}{ie_listener}) {
-			$self->ie_invoke(1, 'ie_connection');
-		} elsif (${*$self}{ie_autoread}) {
-			$self->ie_input();
-		} else {
-			$self->ie_invoke(1, 'ie_read_ready', $fh);
-		}
-	}
-	if ($got & W) {
-		if (${*$self}{ie_connecting}) {
-			delete ${*$self}{ie_connecting};
-			delete ${*$self}{ie_connect_timeout};
-			$self->ie_invoke(0, 'ie_connected');
-			$event->poll($event->poll & ~(W));
-		} else {
-			my $obuf = \${*$self}{ie_obuf};
-			my $rv;
-			if (length($$obuf)) {
-				$rv = syswrite($fh, $$obuf);
-				if (defined $rv) {
-					substr($$obuf, 0, $rv) = '';
-				} elsif ($! == EAGAIN) {
-					# this shouldn't happen, but
-					# it's not that big a deal
-				} else {
-					# the file descriptor is toast
-					$self->ie_invoke(0, 'ie_werror', $obuf);
-					${*$self}{ie_writeclosed} = $!;
-				}
-			}
-			if (${*$self}{ie_closerequested}) {
-				if (! length($$obuf)) {
-					$self->ie_deregister();
-					${*$self}{ie_fh}->close();
-					delete ${*$self}{ie_closerequested};
-				}
+	my $got = $ievent->got;
+#print STDERR "GOT $got\n";
+#print STDERR "event: $ievent ie_event: ${*$self}{ie_event}\n";
+	my $event = ${*$self}{ie_event};
+	{
+		if ($got & R) {
+	#print "read dispatch\n";
+			if (${*$self}{ie_listener}) {
+				$self->ie_invoke(1, 'ie_connection');
+			} elsif (${*$self}{ie_autoread}) {
+				$self->ie_input();
 			} else {
-				$self->ie_invoke(0, 'ie_output', $obuf, $rv);
-				if (! length($$obuf)) {
-					$event->ie_invoke(0, 'ie_outputdone', $obuf);
-					if (! length($$obuf)) {
-						$event->poll($event->poll & ~(W));
+				$self->ie_invoke(1, 'ie_read_ready', $fh);
+			}
+			last if ${*$self}{ie_writeclosed} 
+				&& ${*$self}{ie_readclosed};
+		}
+		if ($got & W) {
+			if (${*$self}{ie_connecting}) {
+#print STDERR "no W\n";
+				$event->poll($event->poll & ~(W));
+				delete ${*$self}{ie_connecting};
+				delete ${*$self}{ie_connect_timeout};
+				$self->ie_invoke(0, 'ie_connected');
+			} else {
+				my $obuf = \${*$self}{ie_obuf};
+				my $rv;
+				if (length($$obuf)) {
+					$rv = syswrite($fh, $$obuf);
+					if (defined $rv) {
+						substr($$obuf, 0, $rv) = '';
+					} elsif ($! == EAGAIN) {
+						# this shouldn't happen, but
+						# it's not that big a deal
+					} else {
+						# the file descriptor is toast
+						${*$self}{ie_writeclosed} = $!;
+						$self->ie_invoke(0, 'ie_werror', $obuf);
 					}
 				}
-				if (length($$obuf) > ${*$self}{ie_obufsize}) {
-					$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
-					${*$self}{ie_overflowinvoked} = 1;
-				} elsif (${*$self}{ie_overflowinvoked}) {
-					$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
-					${*$self}{ie_overflowinvoked} = 0;
+				if (${*$self}{ie_closerequested}) {
+					if (! length($$obuf)) {
+						$self->ie_deregister();
+						${*$self}{ie_fh}->close();
+						delete ${*$self}{ie_closerequested};
+					}
+				} else {
+					$self->ie_invoke(0, 'ie_output', $obuf, $rv);
+					last if ${*$self}{ie_writeclosed} 
+						&& ${*$self}{ie_readclosed};
+					if (! length($$obuf)) {
+						$event->ie_invoke(0, 'ie_outputdone', $obuf);
+						last if ${*$self}{ie_writeclosed} 
+							&& ${*$self}{ie_readclosed};
+						if (! length($$obuf)) {
+							$event->poll($event->poll & ~(W));
+						}
+					}
+					if (length($$obuf) > ${*$self}{ie_obufsize}) {
+						${*$self}{ie_overflowinvoked} = 1;
+						$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
+					} elsif (${*$self}{ie_overflowinvoked}) {
+						${*$self}{ie_overflowinvoked} = 0;
+						$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
+					}
 				}
 			}
+			last if ${*$self}{ie_writeclosed} 
+				&& ${*$self}{ie_readclosed};
 		}
-	}
-	if ($got & E) {
-		if ($fh->eof) {
-			if (length(${*$self}{ie_ibuf})) {
-				$self->ie_invoke(0, 'ie_input', \${*$self}{ie_ibuf});
-			} 
-			$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
-				unless ${*$self}{ie_eofinvoked}++;
-		} else {
-			$self->ie_invoke(0, 'ie_exception');
+		if ($got & E) {
+			if ($fh->eof) {
+				if (length(${*$self}{ie_ibuf})) {
+					$self->ie_invoke(0, 'ie_input', \${*$self}{ie_ibuf});
+				} 
+				$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
+					unless ${*$self}{ie_eofinvoked}++;
+			} else {
+				$self->ie_invoke(0, 'ie_exception');
+			}
+			last if ${*$self}{ie_writeclosed} 
+				&& ${*$self}{ie_readclosed};
 		}
-	}
-	if ($got & T) {
-		if (${*$self}{ie_connecting} 
-			&& ${*$self}{ie_connect_timeout}
-			&& time >= ${*$self}{ie_connect_timeout})
-		{
-			delete ${*$self}{ie_connect_timeout};
-			$self->ie_invoke(0, 'ie_connect_timeout')
-				|| $event->ie_invoke(0, 'ie_timer');
-		} else {
-			$event->ie_invoke(0, 'ie_timer');
+		if ($got & T) {
+			if (${*$self}{ie_connecting} 
+				&& ${*$self}{ie_connect_timeout}
+				&& time >= ${*$self}{ie_connect_timeout})
+			{
+				delete ${*$self}{ie_connect_timeout};
+				$self->ie_invoke(0, 'ie_connect_timeout')
+					|| $event->ie_invoke(0, 'ie_timer');
+			} else {
+				$event->ie_invoke(0, 'ie_timer');
+			}
 		}
+		last;
 	}
 	while (@pending_callbacks) {
 		my ($ie, $req, $meth, @args) = @{shift @pending_callbacks};
@@ -329,10 +347,11 @@ sub ie_register
 	$fh->blocking(0);
 	$fh->autoflush(1);
 	${*$self}{ie_event} = Event->io(
-		'fd' => (${*$self}{ie_fileno} = $fh->fileno),
-		'poll' => R|E|T,
-		'cb' => [ $self, 'ie_dispatch' ],
-		'desc' => ${*$self}{ie_desc},
+		fd	=> (${*$self}{ie_fileno} = $fh->fileno),
+		poll	=> R|E|T,
+		cb	=> [ $self, 'ie_dispatch' ],
+		desc	=> ${*$self}{ie_desc},
+		edebug	=> $edebug,
 	);
 	print STDERR "registered ${*$self}{ie_fileno}:${*$self}{ie_desc} $self $fh ${*$self}{ie_event}\n"
 		if $debug;
@@ -504,6 +523,7 @@ sub forceclose
 	${*$self}{ie_fh}->close();
 	${*$self}{ie_writeclosed} = 1;
 	${*$self}{ie_readclosed} = 1;
+	print STDERR "forceclose(${*$self}{ie_desc})\n" if $debug;
 }
 
 # from IO::Handle

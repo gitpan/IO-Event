@@ -1,4 +1,9 @@
 
+= 2005/01/21	0.505
+
+Removed some race-condition warnings if descriptors are
+close()ed before EOF.
+
 = 2004/05/05	0.504
 
 Dropped all calls to eof().  Switched from read() to
