@@ -1,4 +1,11 @@
 
+= 2004/05/05	0.504
+
+Dropped all calls to eof().  Switched from read() to
+sysread().  Fixed bugs in ie_invoke.  Made forked.t
+portable to DragonflyBSD which probably also made it
+work on a bunch of other systems too.
+
 = 2004/04/20	0.503
 
 Bugfix: eof was falsing positive

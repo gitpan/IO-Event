@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.503;
+$VERSION = 0.504;
 
 use strict;
 use warnings;
@@ -41,10 +41,13 @@ sub new
 	${*$self}{ie_obuf} = '';
 	${*$self}{ie_obufsize} = BUFSIZ*4;
 	${*$self}{ie_autoread} = 1;
+	${*$self}{ie_pending} = {};
 	${*$self}{ie_desc} = $description || "wrapper for $fh";
 
 	$self->ie_register();
-
+	$fh->blocking(0);
+	print "New IO::Event: ${*$self}{ie_desc} - now nonblocking\n" if $debug;
+	
 	# stolen from IO::Multiplex
 	tie(*$self, $pkg, $self);
 	return $self;
@@ -76,7 +79,9 @@ sub ie_invoke
 
 	if ($in_callback && ! ${*$self}->{ie_reentrant}) {
 		# we'll do this later
-		push(@pending_callbacks, [ $self, $required, $method, @args ]);
+		push(@pending_callbacks, [ $self, $required, $method, @args ])
+			unless exists ${*$self}{ie_pending}{$method};
+		${*$self}{ie_pending}{$method} = 1;
 		return 1;
 	}
 
@@ -197,6 +202,7 @@ sub ie_dispatch
 	}
 	while (@pending_callbacks) {
 		my ($ie, $req, $meth, @args) = @{shift @pending_callbacks};
+		delete ${*$self}{ie_pending}{$meth};
 		if (defined &$meth) {
 			$ie->$meth();
 		} else {
@@ -205,7 +211,8 @@ sub ie_dispatch
 	}
 }
 
-# same name as handler since we want to control how ie_input is called 
+# same name as handler since we want to intercept invocations
+# when processing pending callbacks.  Why?
 sub ie_input
 {
 	my $self = shift;
@@ -214,32 +221,25 @@ sub ie_input
 	# 
 	# We'll loop just to make sure we don't miss an event
 	# 
-	my $some = 0;
-#my $pass = 0;
 	for (;;) {
 		my $ol = length($$ibuf);
-		my $rv = ${*$self}{ie_fh}->read($$ibuf, BUFSIZ, $ol);
+		my $rv = ${*$self}{ie_fh}->sysread($$ibuf, BUFSIZ, $ol);
 
 		if ($rv) {
-			$some = 1;
 			delete ${*$self}{ie_readclosed};
 		} elsif (defined($rv)) {
 			# must be 0 and closed!
 			${*$self}{ie_readclosed} = 1;
 			last;
-		} elsif ($! = EAGAIN) {
-			#
-			# Perl 5.8.3 on Linux will return undef/EAGAIN at eof.
-			#
-			${*$self}{ie_readclosed} = $!
-				unless $some;
+		} elsif ($! == EAGAIN) {
+			# readclosed = 0?
 			last;
 		} else {
 			# errors other than EAGAIN aren't recoverable
 			${*$self}{ie_readclosed} = $!;
+			last;
 		}
 
-#print "PASS $pass\n"; $pass++;
 		$self->ie_invoke(1, 'ie_input', $ibuf);
 	}
 
@@ -457,7 +457,6 @@ sub accept
 	} else {
 		$desc = "Accept for ${*$self}{ie_desc}";
 	}
-
 	$handler = ${*$self}{ie_handler} 
 		unless defined $handler;
 	my $new = IO::Event->new($newfh, $handler, $desc);
@@ -543,8 +542,24 @@ sub sysread
 {
 	my $self = shift;
 
-	return ${*$self}{ie_fh}->read(shift, shift, shift)
-		unless ${*$self}{ie_autoread};
+	unless (${*$self}{ie_autoread}) {
+		my $buf = shift;
+		my $length = shift;
+		my $rv = ${*$self}{ie_fh}->sysread($buf, $length, @_);
+
+		if ($rv) {
+			delete ${*$self}{ie_readclosed};
+		} elsif (defined($rv)) {
+			# must be 0 and closed!
+			${*$self}{ie_readclosed} = 1;
+		} elsif ($! == EAGAIN) {
+			# nothing there
+		} else {
+			# errors other than EAGAIN aren't recoverable
+			${*$self}{ie_readclosed} = $!;
+		}
+		return $rv;
+	}
 
 	my $ibuf = \${*$self}{ie_ibuf};
 	my $length = length($$ibuf);
@@ -632,26 +647,26 @@ sub getline
 		$$ibuf =~ s/^\n+//;
 		$irs = "\n\n";
 		$index = index($$ibuf, "\n\n");
-		if ($debug) {
-			my $x = $$ibuf;
-			$x =~ s/\n/\\n/g;
-			print "looked for '\\n\\n' in '$x' got $index\n";
-		}
 	} else {
 		# multi-character (or just \n)
 		$index = index($$ibuf, $irs);
-		if ($debug) {
-			my $x = $$ibuf;
-			$x =~ s/\n/\\n/g;
-			my $y = $irs;
-			$y =~ s/\n/\\n/g;
-			print "looked for '$y' in '$x' got $index\n";
-		}
 	}
 	if (defined $index) {
 		$line = $index > -1
 			? substr($$ibuf, 0, $index+length($irs))
 			: ($self->eof2 ? $$ibuf : undef);
+	}
+	if ($debug) {
+		no warnings;
+		my $x = $$ibuf;
+		substr($x, 0, length($line)) = '';
+		$x =~ s/\n/\\n/g;
+		my $y = $irs;
+		$y =~ s/\n/\\n/g;
+		print "looked for '$y', returning undef, keeping '$x'\n" unless defined $line;
+		my $z = $line;
+		$z =~ s/\n/\\n/g;
+		print "looked for '$y', returning '$z', keeping '$x'\n" if defined $line;
 	}
 	return undef unless defined($line) && length($line);
 	substr($$ibuf, 0, length($line)) = '';
@@ -791,8 +806,9 @@ sub eof
 {
 	my ($self) = @_;
 	return 0 if length(${*$self}{ie_ibuf});
-	return 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
-	return ${*$self}{ie_fh}->eof;
+	return 1 if ${*$self}{ie_readclosed};
+	return 0;
+	# return ${*$self}{ie_fh}->eof;
 }
 
 # internal use only.
@@ -804,15 +820,15 @@ sub eof2
 		my $fn = $self->fileno;
 		print "eof2($fn)...";
 		print " readclosed" if ${*$self}{ie_readclosed};
-		print " autoread" if ${*$self}{ie_autoread};
-		print " EOF" if ${*$self}{ie_fh}->eof;
-		my $x;
-		$x = 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
-		$x = ${*$self}{ie_fh}->eof unless defined $x;
+		#print " EOF" if ${*$self}{ie_fh}->eof;
+		my $x = 0;
+		$x = 1 if ${*$self}{ie_readclosed};
+		# $x = ${*$self}{ie_fh}->eof unless defined $x;
 		print " =$x\n";
 	}
-	return 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
-	return ${*$self}{ie_fh}->eof;
+	return 1 if ${*$self}{ie_readclosed};
+	return 0;
+	# return ${*$self}{ie_fh}->eof;
 }
 
 sub fileno

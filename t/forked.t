@@ -3,10 +3,12 @@
 use strict;
 use warnings;
 
-my $smallsleep = 0.0001;
-my $bigsleep = 0.2;
+my $smallsleep = 0.;
+my $bigsleep = 0.5;
 my $debug = 0;
+my $syncdebug = 0;
 my $inactivity = 5;
+my $heartbeat = 0.1;
 
 BEGIN	{
 	unless (eval { require Test::More; }) {
@@ -14,21 +16,32 @@ BEGIN	{
 		exit;
 	}
 }
-
 BEGIN	{
-	if (eval { require Time::HiRes }) {
-		import Time::HiRes qw(sleep);
-	} else {
-		$bigsleep = 1;
-		$smallsleep = 0;
+	unless (eval { require Time::HiRes; }) {
+		print "1..0 # Skipped: must have Time::HiRes installed\n";
+		exit;
 	}
 }
 
+use Time::HiRes qw(sleep gettimeofday tv_interval);
 use Event;
+use IO::Pipe;
 use IO::Event;
 use IO::Socket::INET;
 use Carp qw(verbose);
 use Sys::Hostname;
+use Socket;
+
+my $t0 = [gettimeofday];
+sleep(0.2);
+my $elapsed = tv_interval ( $t0 );
+print "# elsapsed: $elapsed\n";
+
+unless ($elapsed > 0.1 && $elapsed < 0.5) {
+	print "# Time::HiRes::sleep() doesn't work - going slow\n";
+	$smallsleep = 1;
+	$bigsleep = 2;
+}
 
 my @tests;
 my $testcount;
@@ -138,7 +151,7 @@ BEGIN {
 				"a\nb\n\nc\n\n\nd\n\n\n\ne\n",
 			],
 		}, 
-		{ #2
+		{ #4
 			repeat	=> 5,
 			desc	=> "paragraph mode, getlines, \$/ set funny",
 			setup	=> sub {
@@ -168,8 +181,9 @@ BEGIN {
 		}, 
 	);
 
-	#splice(@tests, 0, 4);
-	#$tests[0]->{repeat} = 1;
+	# @tests = ($tests[3]);
+	# splice(@tests, 0, 4);
+	# $tests[0]->{repeat} = 1;
 
 	$testcount = 0;
 	for my $t (@tests) {
@@ -190,10 +204,13 @@ print STDERR "# host = $hostname, addr = $addr.\n" if $debug;
 my $rp = pickport();
 my $child;
 my $timer;
+my $hbtimer;
 
 $SIG{PIPE} = sub { 
 	print "# SIGPIPE recevied in $$\n";
 };
+
+my $pipe = new IO::Pipe;
 
 if ($child = fork()) {
 	print "# PARENT $$ will listen at $addr:$rp\n" if $debug;
@@ -207,19 +224,25 @@ if ($child = fork()) {
 	);
 
 	$timer = Timer->new();
+	$hbtimer = Heartbeat->new();
 
 	$Event::DIED = sub {
 		Event::verbose_exception_handler(@_);
 		Event::unloop_all();
 	};
 
-	print "looping\n";
+	$pipe->writer();
+	$pipe->autoflush(1);
+	print $pipe "l";
+
+	print "# PARENT looping\n";
 	Event::loop();
-	print "done looping\n";
+	print "# PARENT done looping\n";
 } elsif (defined($child)) {
 	print "# CHILD $$ will connect to $addr:$rp\n" if $debug;
+	$pipe->reader();
+	syncto("l");
 	while (@tests) {
-		sleep($bigsleep);
 		my $test = $tests[0] || last;
 		shift @tests 
 			if --$test->{repeat} < 1;
@@ -229,19 +252,21 @@ if ($child = fork()) {
 			PeerPort => $rp,
 			Proto => 'tcp',
 		);
+		syncto("a");
 		die "$$ could not connect: $!" unless $s;
 		die "$$ socket not open" if eof($s);
 		my $go = <$s>;
 		$go =~ s/\n/\\n/g;
-		# print "# got '$go'\n";
+		print "# got '$go'\n" if $debug;
 		for (my $sqi = 0; $sqi <= $#{$test->{sendqueue}}; $sqi++) {
-			sleep($smallsleep);
+			syncclear();
 			if ($debug) {
 				my $x = $test->{sendqueue}[$sqi];
 				$x =~ s/\n/\\n/g;
 				print "# SENDING '$x'\n";
 			}
 			(print $s $test->{sendqueue}[$sqi]) || die "print $$: $!\n";
+			syncany();
 		}
 		print "# CHILD closing\n";
 		close($s);
@@ -269,6 +294,38 @@ sub pickport
 	die "could not find an open port";
 }
 
+sub syncany
+{
+	print "syncany\n" if $syncdebug;
+	$pipe->blocking(1);
+	my $buf;
+	$pipe->read($buf, 1);
+	syncclear();
+	print "syncany done - $buf\n" if $syncdebug;
+}
+sub syncto
+{
+	my $lookfor = shift;
+	print "syncto $lookfor\n" if $syncdebug;
+	$pipe->blocking(1);
+	my $buf;
+	while ($pipe->read($buf, 1) > 0) {
+		print "syncto got $buf\n" if $syncdebug;
+		last if $buf eq $lookfor;
+	}
+	print "syncto $lookfor done\n" if $syncdebug;
+}
+sub syncclear
+{
+	print "synclear\n" if $syncdebug;
+	$pipe->blocking(0);
+	my $buf;
+	while ($pipe->read($buf, 4096)) {
+		print "syncclear: '$buf'\n" if $syncdebug;
+	}
+	print "syncclear done\n" if $syncdebug;
+}
+
 
 package Server;
 
@@ -294,7 +351,9 @@ sub ie_connection
 	@$serverTest{keys %$test} = values %$test;
 	my $setup = $serverTest->{setup};
 	&$setup($serverTest, $stream) if $setup;
-	# print "# ACCEPTED CONNECTION\n" if $debug;
+	print "# ACCEPTED CONNECTION\n" if $debug;
+	print "pipesend 'a'\n" if $syncdebug;
+	print $pipe "a";
 	print $stream "go\n";
 }
 
@@ -309,6 +368,8 @@ sub ie_input
 		my $expect = $self->{results}[$self->{rqi}++];
 		is_deeply($r, $expect);
 	}
+	print "pipesend 'i'\n" if $syncdebug;
+	print $pipe "i";
 }
 
 sub ie_eof
@@ -316,6 +377,8 @@ sub ie_eof
 	my ($self, $s) = @_;
 	is($self->{rqi}, scalar(@{$self->{results}}));
 	$s->close();
+	print "pipesend 'e'\n" if $syncdebug;
+	print $pipe "e";
 	exit 0 unless @tests;
 }
 
@@ -353,5 +416,29 @@ sub reset
 	$self->{event}->again();
 }
 
-__END__
+package Heartbeat;
 
+use Carp;
+use strict;
+use warnings;
+
+sub new
+{
+	my ($pkg) = @_;
+	my $self = bless { }, $pkg;
+
+	$self->{event} = Event->timer(
+		cb		=> [ $self, 'timeout' ],
+		interval	=> $heartbeat,
+		hard		=> 0,
+	);
+	return $self;
+}
+
+sub timeout
+{
+	print "pipesend 't'\n" if $syncdebug;
+	print $pipe "t";
+}
+
+__END__
