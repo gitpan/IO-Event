@@ -8,7 +8,7 @@ my $debug = 0;
 
 my $c = 1;
 $| = 1;
-my $testcount = 4;
+my $testcount = 5;
 
 use Carp qw(verbose);
 use Sys::Hostname;
@@ -55,14 +55,11 @@ sub okay
 {
         my ($cond, $message) = @_;
         if ($cond) {
-                print "ok $c\n";
+		$message =~ s/\n/\\n/g;
+                print "ok $c # $message\n";
         } else {
-                if ($debug) {
-                        my($package, $filename, $line, $subroutine, $hasargs, $wantarray, $evaltext, $is_require) = caller(0);
-                        print "not ok $c: $filename:$line $message\n";
-                } else {
-                        print "not ok $c\n";
-                }
+		my($package, $filename, $line, $subroutine, $hasargs, $wantarray, $evaltext, $is_require) = caller(0);
+		print "not ok $c # $filename:$line $message\n";
         }
 	if ($c > $testcount) {
 		print STDERR "too many test results\n";
@@ -144,6 +141,7 @@ okay($results, "start listening on results socket");
 my $r = Event::loop();
 okay($r == 7, "loop finshed ($r)");
 
+okay(1, "all done");
 exit(0);
 
 my $run1er;
@@ -238,3 +236,4 @@ sub ie_input
 	}
 }
 
+1;

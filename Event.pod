@@ -14,6 +14,9 @@ All APIs are kept as simple as possible yet at the same time,
 all functionality is accesible if needed.  Simple things are
 easy.  Hard things are possible.
 
+Most of the time file handling syntax will work fine: C<< <$filehandle> >>
+and C<print $filehandle 'stuff'>.
+
 =head1 CONSTRUCTORS
 
 =over 4
@@ -57,7 +60,7 @@ with an additional psuedo-parameter: C<Description>.
 =head1 MANDATORY HANDLERS
 
 These handler methods must be available in the handler
-object/class if thit situation in which they would be
+object/class if the situation in which they would be
 called arises.
 
 =over 4
@@ -70,11 +73,11 @@ C<$$input_buffer_reference> or via C<read()> from the
 $ieo filehandle, or by using a variety of standard
 methods for getting data: 
 	
+	<$ieo>			like IO::Handle
 	$ieo->get()		like Data::LineBuffer
 	$ieo->read()		like IO::Handle
 	$ieo->getline()		like IO::Handle
 	$ieo->getlines()	like IO::Handle
-	<$ieo>			like IO::Handle
 
 =item ie_connection($handler, $ieo)
 
@@ -180,7 +183,7 @@ IO::Event defines its own methods too:
 
 =item ->accept($handler)
 
-accept() is nearly identical to the normal IO::Socket::accpt()
+accept() is nearly identical to the normal IO::Socket::accept()
 method except that instead of optionally passing a class
 specifier for the new socket, you optionally pass a 
 handler object/class.   The returned filehandle is an
@@ -219,7 +222,7 @@ Returns the underling C<Event>.
 Used to note that a filehandle is being used to listen
 for connections (instead of receiving data).  A passed
 parameter of 0 does the opposite.  Returns the old value.
-This is mostly used internally to IO::Event.
+This is mostly used internally in IO::Event.
 
 =item ->autoread($autoread)
 
@@ -248,9 +251,9 @@ look at C<$/> again.
 
 =head1 SUBSTITUED METHODS
 
-Any method invications that fail because the method isn't defined
+Any method invocations that fail because the method isn't defined
 in IO::Event will by tried twice more: once using trying for a
-method on the inner (hidden) filehandle and once more trying the
+method on the inner (hidden) filehandle and once more trying 
 for a method on the Event object that's used to create the select
 loop for this module.
 
@@ -307,7 +310,7 @@ them anyway?
 
 =head1 LICENSE
 
-Copyright (C) 2002 David Muir Sharnoff.
+Copyright (C) 2002,2003 David Muir Sharnoff.
 This module may be used/copied/etc on the same terms as Perl 
 itself.
 

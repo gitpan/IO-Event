@@ -51,6 +51,7 @@ our (@tests) = (
 		},
 		compare => "woa baby",
 		repeat => 1,
+		desc => 'copy one line: print method & get method',
 	},
 	{ #3
 		send =>		sub {
@@ -60,6 +61,7 @@ our (@tests) = (
 			puller()->getline()
 		},
 		compare => "woa frog\n",
+		desc => 'copy one line: print method & getline method',
 		repeat => 1,
 	},
 	{ #4
@@ -74,6 +76,7 @@ our (@tests) = (
 		compare => [ "foo\n", "bar\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy two lines: print filehandle & <filehandle>',
 	},
 	{ #5
 		send =>		sub {
@@ -87,6 +90,7 @@ our (@tests) = (
 		compare => [ "foo\n", "baz\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy two lines: printf filehandle & <filehandle>',
 	},
 	{ #6
 		send =>		sub {
@@ -104,6 +108,7 @@ our (@tests) = (
 		},
 		compare => "abc123",
 		repeat => 1,
+		desc => 'copy 2x3 chars: print method & read filehandle',
 	},
 	{ #7
 		send =>		sub {
@@ -117,6 +122,7 @@ our (@tests) = (
 		compare => [ "a\nb\n\n", "c\n\n", "d\n\n", "e\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & array context <filehandle>',
 	},
 	{ #8
 		send =>		sub {
@@ -134,6 +140,7 @@ our (@tests) = (
 		compare => [ "a\nb\n\n", "c\n\n", "d\n\n", "e\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & scalar context <filehandle>',
 	},
 	{ #9
 		send =>		sub {
@@ -148,6 +155,7 @@ our (@tests) = (
 		compare => [ "a\nb\n\n", "c\n\n", "d\n\n", "e\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & <filehandle> with $/ funny',
 	},
 	{ #10
 		send =>		sub {
@@ -166,6 +174,7 @@ our (@tests) = (
 		compare => [ "a\nb\n\n", "c\n\n", "d\n\n", "e\n" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & scalar <filehandle> with $/ funny',
 	},
 	{ #11
 		send =>		sub {
@@ -183,6 +192,7 @@ our (@tests) = (
 		compare => [ "xyz", "124", "abc", "567" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & scalar <filehandle> with $/ == 3',
 	},
 	{ #12
 		send =>		sub {
@@ -196,6 +206,7 @@ our (@tests) = (
 		compare => [ "xyz", "124", "abc", "567" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & <filehandle> with $/ == 3',
 	},
 	{ #13
 		send =>		sub {
@@ -209,6 +220,7 @@ our (@tests) = (
 		compare => [ "xyzYYY", "124YYY", "abcYYY", "567" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & <filehandle> with $/ == YYY',
 	},
 	{ #14
 		send =>		sub {
@@ -222,6 +234,7 @@ our (@tests) = (
 		compare => [ "xyzYYY", "124YYY", "YabcYYY", "567" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & <filehandle> with $/ == YYY & extra Y',
 	},
 	{ #15
 		send =>		sub {
@@ -239,6 +252,7 @@ our (@tests) = (
 		compare => [ "xyzYYY", "124YYY", "YabcYYY", "567" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 sets many lines: print method & scalar <filehandle> with $/ == YYY & extra Y',
 	},
 	{ #15
 		send =>		sub {
@@ -256,6 +270,7 @@ our (@tests) = (
 		compare => [ "my", "dog", "ate", "my..." ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 4 lines: print method & get method',
 	},
 	{ #16
 		send =>		sub {
@@ -275,6 +290,7 @@ our (@tests) = (
 		compare => [ "aaa", "bbb", "ccc", "ddd", "e" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 5x3 chars: print method & sysread method',
 	},
 	{ #17
 		send =>		sub {
@@ -285,7 +301,7 @@ our (@tests) = (
 			my @l;
 			my $x;
 			my $r = "12";
-			while ($x = $p->sysread($r, 3,1)) {
+			while ($x = $p->sysread($r, 3, 1)) {
 				die unless length($r) == $x+1;
 				push(@l, $r);
 			}
@@ -294,6 +310,47 @@ our (@tests) = (
 		compare => [ "1aaa", "1bbb", "1ccc", "1ddd", "1e" ],
 		repeat => 1,
 		array => 1,
+		desc => 'copy 5x3 chars: print method & sysread method with offset',
+	},
+	{ #18
+		send =>		sub {
+			pusher()->print("aaabbbcccddde");
+		},
+		acquire =>	sub {
+			my $p = puller();
+			my @l;
+			my $x;
+			my $r = "12";
+			while ($x = sysread($p, $r, 3)) {
+				die unless length($r) == $x;
+				push(@l, $r);
+			}
+			return @l;
+		},
+		compare => [ "aaa", "bbb", "ccc", "ddd", "e" ],
+		repeat => 1,
+		array => 1,
+		desc => 'copy 5x3 chars: print method & sysread filehandle',
+	},
+	{ #19
+		send =>		sub {
+			pusher()->print("aaabbbcccddde");
+		},
+		acquire =>	sub {
+			my $p = puller();
+			my @l;
+			my $x;
+			my $r = "12";
+			while ($x = sysread($p, $r, 3, 1)) {
+				die unless length($r) == $x+1;
+				push(@l, $r);
+			}
+			return @l;
+		},
+		compare => [ "1aaa", "1bbb", "1ccc", "1ddd", "1e" ],
+		repeat => 1,
+		array => 1,
+		desc => 'copy 5x3 chars: print method & sysread filehandle with offset',
 	},
 );
 
@@ -382,14 +439,10 @@ sub okay
 {
         my ($cond, $message) = @_;
         if ($cond) {
-                print "ok $c\n";
+                print "ok $c # $message\n";
         } else {
-                if ($debug) {
-                        my($package, $filename, $line, $subroutine, $hasargs, $wantarray, $evaltext, $is_require) = caller(0);
-                        print "not ok $c: $filename:$line $message\n";
-                } else {
-                        print "not ok $c\n";
-                }
+		my($package, $filename, $line, $subroutine, $hasargs, $wantarray, $evaltext, $is_require) = caller(0);
+		print "not ok $c # $filename:$line $message\n";
         }
         $c++;
 	if ($c > $testcount) {
@@ -418,12 +471,12 @@ sub sender
 {
 	shift(@tests);
 	if (! @tests) {
-		okay(1);
+		okay(1, "all done");
 		exit(0);
 	}
 	my $t = $tests[0];
 	$a = $t->{send};
-	print STDERR "keys = ",join(' ',keys %$t),"\n" if $debug;
+	# okay(1, "keys = ".join(' ',keys %$t));
 	if (ref $a) {
 		eval { &$a() };
 		if ($@) {
@@ -432,10 +485,10 @@ sub sender
 		}
 	} else {
 		pusher || confess "no pusher";
-		print STDERR "printing '$a' for new test\n" if $debug;
+		print "# printing '$a' for new test\n" if $debug;
 		pusher->print($a);
 	}
-	print STDERR "starting test\n" if $debug;
+	# okay(1, "starting $t->{desc}");
 	alarm($slowest);
 }
 
@@ -474,7 +527,7 @@ sub ie_input
 		$r = eval { &$acquire($iput, $ibuf, $t) };
 	}
 	if ($@) {
-		T::okay(0, "acquire error $@ $!");
+		T::okay(0, "acquire error: $@ errno:$!");
 		exit(0);
 	}
 	if ($t->{repeat}) {
@@ -525,7 +578,13 @@ sub ie_input
 		# we'll wait for more input
 		return;
 	}
-	T::okay($cr == 0, "comparision failed$cr:\n\t<$dr>\n\t<$dcompare>\n");
+	my $desc = $t->{desc};
+	if ($cr == 0) {
+		T::okay(1, $desc);
+	} else {
+		T::okay(0, "test $desc failed: $cr: <$dr> <$dcompare>");
+	}
 	T::sender();
 }
 
+1;

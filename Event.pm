@@ -10,9 +10,10 @@ use POSIX qw(BUFSIZ);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.2;
+$VERSION = 0.3;
 
 use strict;
+use diagnostics;
 
 my %fh_table;
 my $debug = 0;
@@ -419,7 +420,7 @@ sub getline
 	# not completely simple.  
 	$irs = $$irs if ref $irs;
 	my $index;
-	if (int($irs)) {
+	if ($irs =~ /^\d/ && int($irs)) {
 		if ($irs > 0 && length($$ibuf) >= $irs) {
 			$line = substr($$ibuf, 0, $irs);
 		} elsif ($fh->eof) {
@@ -474,7 +475,7 @@ sub getlines
 	my $fh = ${*$self}{ie_fh};
 	my $irs = exists ${*$self}{ie_irs} ? ${*$self}{ie_irs} : $/;
 	my @lines;
-	if (int($irs)) {
+	if ($irs =~ /^\d/ && int($irs)) {
 		if ($irs > 0) {
 			@lines = unpack("(a$irs)*", $$ibuf);
 			$$ibuf = '';
@@ -565,6 +566,11 @@ sub eof
 	return ${*$self}{ie_fh}->eof();
 }
 
+sub DESTROY
+{
+	# we need this so we don't try to AUTOLOAD a DESTROY during global destruction
+}
+
 sub AUTOLOAD
 {
 	my $self = shift;
@@ -651,13 +657,13 @@ sub READ {
 	my (undef,$len,$offset) = @_;
 
 	return undef if ! length(${*$self}{ie_ibuf}) && $self->eof;
+	$$bufref = '' unless defined $$bufref;
+	my $willread = length(${*$self}{ie_ibuf});
+	$willread = $len if $willread > $len;
 	my $oldlen = length($$bufref);
-	if (defined $offset) {
-		substr($$bufref, $offset, 0) = $self->read($len);
-	} else {
-		$$bufref .= $self->read($len);
-	}
-	return ($oldlen - length($$bufref));
+	$offset = 0 unless defined $offset;
+	substr($$bufref, $offset, length($$bufref)) = $self->read($willread);
+	return $willread;
 }
 
 sub WRITE { goto &syswrite; }

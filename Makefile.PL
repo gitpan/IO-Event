@@ -9,7 +9,11 @@ WriteMakefile(
 	($] >= 5.005 ?
 	    ('ABSTRACT' => 'Tied Filehandles for Nonblocking IO with Object Callbacks',
 	     'AUTHOR'	=> 'David Muir Sharnoff <muir@idiom.com>') : ()),
-	'dist'   => {COMPRESS=>'gzip', SUFFIX=>'gz'}
+	'dist'   => {COMPRESS=>'gzip', SUFFIX=>'gz'},
+	'PREREQ_PM' => {
+		'Event' => 0.87,
+	 },
+
 );
 
 package MY;

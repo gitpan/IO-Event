@@ -6,3 +6,4 @@ README
 CHANGELOG
 t/callbacks.t
 t/getline.t
+META.yml                                 Module meta-data (added by MakeMaker)

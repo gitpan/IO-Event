@@ -10,6 +10,9 @@ DESCRIPTION
     functionality is accesible if needed. Simple things are easy. Hard
     things are possible.
 
+    Most of the time file handling syntax will work fine: "<$filehandle>"
+    and "print $filehandle 'stuff'".
+
 CONSTRUCTORS
     IO::Event->new($filehandle, $handler)
         The basic "new" constructor takes a filehandle and returns a
@@ -41,7 +44,7 @@ CONSTRUCTORS
 
 MANDATORY HANDLERS
     These handler methods must be available in the handler object/class if
-    thit situation in which they would be called arises.
+    the situation in which they would be called arises.
 
     ie_input($handler, $ieo, $input_buffer_reference)
         Invoked when there is fresh data in the input buffer. The input can
@@ -49,11 +52,11 @@ MANDATORY HANDLERS
         or via "read()" from the $ieo filehandle, or by using a variety of
         standard methods for getting data:
 
+                <$ieo>                  like IO::Handle
                 $ieo->get()             like Data::LineBuffer
                 $ieo->read()            like IO::Handle
                 $ieo->getline()         like IO::Handle
                 $ieo->getlines()        like IO::Handle
-                <$ieo>                  like IO::Handle
 
     ie_connection($handler, $ieo)
         Invoked when a listen()ing socket is ready to accept(). It should
@@ -138,7 +141,7 @@ METHODS
     IO::Event defines its own methods too:
 
     ->accept($handler)
-        accept() is nearly identical to the normal IO::Socket::accpt()
+        accept() is nearly identical to the normal IO::Socket::accept()
         method except that instead of optionally passing a class specifier
         for the new socket, you optionally pass a handler object/class. The
         returned filehandle is an IO::Event object.
@@ -169,7 +172,7 @@ METHODS
         Used to note that a filehandle is being used to listen for
         connections (instead of receiving data). A passed parameter of 0
         does the opposite. Returns the old value. This is mostly used
-        internally to IO::Event.
+        internally in IO::Event.
 
     ->autoread($autoread)
         Get/set automatic reading if data when data can be read. Without
@@ -191,10 +194,10 @@ METHODS
         value and never look at $/ again.
 
 SUBSTITUED METHODS
-    Any method invications that fail because the method isn't defined in
+    Any method invocations that fail because the method isn't defined in
     IO::Event will by tried twice more: once using trying for a method on
-    the inner (hidden) filehandle and once more trying the for a method on
-    the Event object that's used to create the select loop for this module.
+    the inner (hidden) filehandle and once more trying for a method on the
+    Event object that's used to create the select loop for this module.
 
 EXAMPLE SERVER
             # This is a tcp line echo server
@@ -243,6 +246,6 @@ BUGS
     anyway?
 
 LICENSE
-    Copyright (C) 2002 David Muir Sharnoff. This module may be
+    Copyright (C) 2002,2003 David Muir Sharnoff. This module may be
     used/copied/etc on the same terms as Perl itself.
 
