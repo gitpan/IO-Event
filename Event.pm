@@ -10,17 +10,17 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.501;
+$VERSION = 0.502;
 
 use strict;
-use diagnostics;
+use warnings;
 my $debug = 0;
 
 my %fh_table;
 my %rxcache;
 
 my @pending_callbacks;
-my $in_callback;
+our $in_callback = 0;
 
 sub new
 {
@@ -80,8 +80,7 @@ sub ie_invoke
 		return 1;
 	}
 
-	my $ic = $in_callback;
-	$in_callback = 1;
+	local($in_callback) = 1;
 
 	print STDERR "invoking ${*$self}{ie_fileno} ${*$self}{ie_handler}->$method\n"
 		if $debug;
@@ -93,17 +92,12 @@ sub ie_invoke
 
 	print STDERR "return from ${*$self}{ie_fileno} ${*$self}{ie_handler}->$method handler: $@\n" if $debug;
 
-	$in_callback = $ic;
-
 	return 1 unless $@;
 	if (${*$self}{ie_handler}->can('ie_died')) {
-		$in_callback = 1;
-		eval {
-			${*$self}{ie_handler}->ie_died($self, $method, $@);
-		};
-		$in_callback = $ic;
+		${*$self}{ie_handler}->ie_died($self, $method, $@);
 	} else {
 		confess $@;
+		exit 1;
 	}
 	return 0;
 }
@@ -359,6 +353,17 @@ sub handler
 	return $old;
 }
 
+# is there enough?
+sub can_read
+{
+	my ($self, $length) = @_;
+	my $l = length(${*$self}{ie_ibuf});
+	return $l if $l && $l >= $length;
+	return "0 but true" if $length <= 0;
+	return 0;
+}
+
+# reads N characters or returns undef if it can't 
 sub getsome
 {
 	my ($self, $length) = @_;
@@ -542,6 +547,7 @@ sub unget
 {
 	my $self = shift;
 	my $irs = "\n";
+	no warnings;
 	substr(${*$self}{ie_ibuf}, 0, 0) 
 		= join($irs, @_, undef);
 }
@@ -596,14 +602,6 @@ sub getline
 #	my ($self) = @_;
 #	return ${*$self}{ie_fh}->tell() + length(${*$self}{ie_obuf});
 #}
-
-# original
-sub ungetline
-{
-	my $self = shift;
-	substr(${*$self}{ie_ibuf}, 0, 0) 
-		= join('', @_);
-}
 
 # from IO::Handle
 sub getlines
@@ -661,13 +659,16 @@ sub ungetc
 	substr($$ibuf, 0, 0) = chr($ord);
 }
 
-# what ungetc should have been
-sub xungetc
+# from FileHandle::Unget & original
+sub ungets
 {
-	my ($self, $stuff) = @_;
-	my $ibuf = \${*$self}{ie_ibuf};
-	substr($$ibuf, 0, 0) = $stuff;
+	my $self = shift;
+	substr(${*$self}{ie_ibuf}, 0, 0) 
+		= join('', @_);
 }
+
+*xungetc = \&ungets;
+*ungetline = \&ungets;
 
 # from IO::Handle
 sub getc
@@ -739,6 +740,20 @@ sub AUTOLOAD
 		} else {
 			eval { $r = $fh->$a(@_) };
 		}
+		if ($@ && $@ =~ /Can't locate object method "(.*?)" via package/) {
+			my $event = ${*$self}{ie_event};
+			if ($1 ne $a) {
+				# nothing to do
+			} elsif ($event->can($a)) {
+				if (wantarray) {
+					eval { @r = $event->$a(@_) };
+				} else {
+					eval { $r = $event->$a(@_) };
+				}
+			} else {
+				confess qq{Can't locate object method "$a" via "@{[ ref($self) ]}", "@{[ ref($fh)||'IO::Handle' ]}", or "@{[ ref($event) ]}"};
+			}
+		}
 	} else {
 		my $event = ${*$self}{ie_event};
 		if ($event->can($a)) {
@@ -749,20 +764,6 @@ sub AUTOLOAD
 			}
 		} else {
 			confess qq{Can't locate object method "$a" via "@{[ ref($self) ]}" or "@{[ ref($event) ]}"};
-		}
-	}
-	if ($@ && $@ =~ /Can't locate object method "(.*?)" via package/) {
-		my $event = ${*$self}{ie_event};
-		if ($1 ne $a) {
-			# nothing to do
-		} elsif ($event->can($a)) {
-			if (wantarray) {
-				eval { @r = $event->$a(@_) };
-			} else {
-				eval { $r = $event->$a(@_) };
-			}
-		} else {
-			confess qq{Can't locate object method "$a" via "@{[ ref($self) ]}", "@{[ ref($fh)||'IO::Handle' ]}", or "@{[ ref($event) ]}"};
 		}
 	}
 	confess $@ if $@;

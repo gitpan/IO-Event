@@ -80,6 +80,7 @@ methods for getting data:
 	$ieo->getline()		like IO::Handle
 	$ieo->getlines()	like IO::Handle
 	$ieo->getsome()		see below
+	$ieo->ungets()		like FileHandle::Unget
 
 At end-of-file, ie_input will only be invoked once.  There
 may or may not be data in the input buffer.  
@@ -140,7 +141,8 @@ This is invoked when a C<connect()> attempt times out.
 
 If another handler calls C<die> then ie_died will be called
 with the IO::Event object, the name of the method just
-invoked, and the die string.
+invoked, and the die string.  If no ie_died() callback exists
+then execution will terminate.
 
 =item ie_timer
 
@@ -209,6 +211,12 @@ specifier for the new socket, you optionally pass a
 handler object/class.   The returned filehandle is an
 IO::Event object.
 
+=item ->can_read($amount)
+
+Returns true if C<$amount> bytes worth of input is available for
+reading.  Note: this does not return true at EOF so be careful not
+to hang forever at EOF.
+
 =item ->getsome($amount)
 
 Returns C<$amount> bytes worth of input or undef if the request
@@ -225,11 +233,7 @@ This is like get() from Data::LineBuffer.
 Push chomp()ed lines back into the input buffer.
 This is like unget() from Data::LineBuffer.
 
-=item ->ungetline()
-
-Push un-chomp()ed lines back into the input buffer.
-
-=item ->xungetc()
+=item ->ungetline(), ->xungetc(), ->ungets()
 
 This is what ungetc() should be: it pushes a string back into
 the input buffer.  This is unlike IO::Handle->ungetc which
