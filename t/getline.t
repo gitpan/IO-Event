@@ -27,7 +27,7 @@ use Carp;
 BEGIN {
 	eval { require Time::HiRes };
 	if ($@) {
-		print "1..0 $@";
+		print "1..0 # Skipped: $@";
 		exit;
 	}
 }
@@ -126,8 +126,8 @@ our (@tests) = (
 	},
 	{ #8
 		send =>		sub {
-			pusher()->print("a\nb\n\nc\n\n\nd\n\n\n\ne\n");
 			$/ = '';
+			pusher()->print("a\nb\n\nc\n\n\nd\n\n\n\ne\n");
 		},
 		acquire =>	sub {
 			my $p = puller();
@@ -145,6 +145,8 @@ our (@tests) = (
 	{ #9
 		send =>		sub {
 			pusher()->print("\n\n\na\nb\n\nc\n\n\nd\n\n\n\ne\n");
+		},
+		connect => 	sub {
 			$/ = "xyz";
 			puller()->input_record_separator('');
 		},
@@ -160,6 +162,8 @@ our (@tests) = (
 	{ #10
 		send =>		sub {
 			pusher()->print("\n\na\nb\n\nc\n\n\nd\n\n\n\ne\n");
+		},
+		connect =>	sub {
 			$/ = "xyz";
 			puller()->input_record_separator('');
 		},
@@ -179,6 +183,9 @@ our (@tests) = (
 	{ #11
 		send =>		sub {
 			pusher()->print("xyz124abc567");
+		},
+		connect =>	sub {
+			$/ = "\n";
 			puller()->input_record_separator(3);
 		},
 		acquire =>	sub {
@@ -197,6 +204,9 @@ our (@tests) = (
 	{ #12
 		send =>		sub {
 			pusher()->print("xyz124abc567");
+		},
+		connect =>	sub {
+			$/ = "\n";
 			puller()->input_record_separator(3);
 		},
 		acquire =>	sub {
@@ -211,6 +221,9 @@ our (@tests) = (
 	{ #13
 		send =>		sub {
 			pusher()->print("xyzYYY124YYYabcYYY567");
+		},
+		connect =>	sub {
+			$/ = "\n";
 			puller()->input_record_separator("YYY");
 		},
 		acquire =>	sub {
@@ -225,6 +238,9 @@ our (@tests) = (
 	{ #14
 		send =>		sub {
 			pusher()->print("xyzYYY124YYYYabcYYY567");
+		},
+		connect =>	sub {
+			$/ = "\n";
 			puller()->input_record_separator("YYY");
 		},
 		acquire =>	sub {
@@ -239,6 +255,8 @@ our (@tests) = (
 	{ #15
 		send =>		sub {
 			pusher()->print("xyzYYY124YYYYabcYYY567");
+		},
+		connect =>	sub {
 			puller()->input_record_separator("YYY");
 		},
 		acquire =>	sub {
@@ -382,7 +400,7 @@ our (@tests) = (
 	},
 );
 
-printf "1..%d\n", 1+@tests;
+printf "1..%d\n", scalar(@tests);
 
 # let's listen on a socket.  We'll expect to receive
 # test numbers.  We'll print ok.
@@ -516,7 +534,8 @@ sub sender
 		print "# printing '$a' for new test\n" if $debug;
 		pusher->print($a);
 	}
-	# okay(1, "starting $t->{desc}");
+	print "# starting $t->{desc}\n";
+	pusher->close();
 	alarm($slowest);
 }
 
@@ -541,10 +560,15 @@ sub ie_connection
 {
 	my ($self, $s) = @_;
 	T::puller($s->accept);
+	my $t = $T::tests[0];
+	my $c = $t->{connect};
+	&$c if $c;
 }
 
 sub ie_input
 {
+#use Carp;
+#print Carp::longmess("DEBUG... ie_input called\n");
 	my ($self, $iput, $ibuf) = @_;
 	my $t = $T::tests[0];
 	my $acquire = $t->{acquire};
@@ -600,10 +624,11 @@ sub ie_input
 	$dr =~ s/\n/\\n/g;
 	my $dcompare = $compare;
 	$dcompare =~ s/\n/\\n/g;
-	if ($t->{repeat} && $cr == -1) {
+	if ($t->{repeat} && $cr == -1 && ! $iput->eof) {
 		print STDERR "waiting for more input:\n\t<$dr>\n\t<$dcompare>\n"
 			if $debug;
 		# we'll wait for more input
+		print "# wait for more input\n";
 		return;
 	}
 	my $desc = $t->{desc};
@@ -612,7 +637,17 @@ sub ie_input
 	} else {
 		T::okay(0, "test $desc failed: $cr: <$dr> <$dcompare>");
 	}
-	T::sender();
+	print "# next\n";
+	if (@tests > 1) {
+		T::startup;
+	} else {
+		exit 0;
+	}
+}
+
+sub ie_eof
+{
+	print "# eof\n";
 }
 
 1;

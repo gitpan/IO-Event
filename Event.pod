@@ -17,6 +17,9 @@ easy.  Hard things are possible.
 Most of the time file handling syntax will work fine: C<< <$filehandle> >>
 and C<print $filehandle 'stuff'>.
 
+After initial setup, call C<Event::loop()>.  The callbacks are
+dispatched through L<Event>.
+
 =head1 CONSTRUCTORS
 
 =over 4
@@ -65,35 +68,35 @@ called arises.
 
 =over 4
 
-=item ie_input($handler, $ieo, $input_buffer_reference)
+=item ie_input($handler, $ioe, $input_buffer_reference)
 
 Invoked when there is fresh data in the input buffer.  The 
 input can be retreived via directly reading it from
 C<$$input_buffer_reference> or via C<read()> from the
-$ieo filehandle, or by using a variety of standard
+$ioe filehandle, or by using a variety of standard
 methods for getting data: 
 	
-	<$ieo>			like IO::Handle
-	$ieo->get()		like Data::LineBuffer
-	$ieo->read()		like IO::Handle
-	$ieo->sysread()		like IO::Handle
-	$ieo->getline()		like IO::Handle
-	$ieo->getlines()	like IO::Handle
-	$ieo->getsome()		see below
-	$ieo->ungets()		like FileHandle::Unget
+	<$ioe>			like IO::Handle
+	$ioe->get()		like Data::LineBuffer
+	$ioe->read()		like IO::Handle
+	$ioe->sysread()		like IO::Handle
+	$ioe->getline()		like IO::Handle
+	$ioe->getlines()	like IO::Handle
+	$ioe->getsome()		see below
+	$ioe->ungets()		like FileHandle::Unget
 
 At end-of-file, ie_input will only be invoked once.  There
 may or may not be data in the input buffer.  
 
-=item ie_connection($handler, $ieo)
+=item ie_connection($handler, $ioe)
 
 Invoked when a listen()ing socket is ready to accept().
 It should call accept:
 
 	sub ie_connection
 	{
-		my ($ieo) = @_;
-		my $newfh = $ieo->accept()
+		my ($ioe) = @_;
+		my $newfh = $ioe->accept()
 	}
 
 =item ie_read_ready($handler, $underlying_file_handle)
@@ -114,7 +117,7 @@ but it is not required that they be defined.
 
 =over 4
 
-=item ie_eof($handler, $ieo, $input_buffer_reference)
+=item ie_eof($handler, $ioe, $input_buffer_reference)
 
 This is invoked when the read-side of the filehandle has
 been closed by its source.
@@ -137,7 +140,7 @@ This is invoked when a C<connect()> completes.
 
 This is invoked when a C<connect()> attempt times out.
 
-=item ie_died($handler, $ieo, $method, $@)
+=item ie_died($handler, $ioe, $method, $@)
 
 If another handler calls C<die> then ie_died will be called
 with the IO::Event object, the name of the method just
@@ -154,7 +157,7 @@ if set using thing underlying Event object.
 Invoked when an exceptional condition arises on the 
 underlying filehandle
 
-=item ie_outputoverflow($handler, $ieo, $overflowing, $output_buffer_reference)
+=item ie_outputoverflow($handler, $ioe, $overflowing, $output_buffer_reference)
 
 Invoked when there is too much output data and the output buffers
 are overflowing.  You can take some action to generate less output.
@@ -174,7 +177,6 @@ methods behave like their C<IO> (mostly C<IO::Socket>) counterparts
 	connect
 	listen
 	open
-	close
 	read
 	sysread
 	syswrite
@@ -208,7 +210,7 @@ IO::Event defines its own methods too:
 accept() is nearly identical to the normal IO::Socket::accept()
 method except that instead of optionally passing a class
 specifier for the new socket, you optionally pass a 
-handler object/class.   The returned filehandle is an
+handler object or class.   The returned filehandle is an
 IO::Event object.
 
 =item ->can_read($amount)
@@ -302,6 +304,15 @@ For example, you will not learn the the output buffer is overflowing
 during print().  You'll have to wait for the output buffer to begin
 draining to find out.  This could be a problem.
 
+=item ->close()
+
+If there is output buffered, close will be delayed until the output
+buffer drains.
+
+=item ->forceclose
+
+Close close immediately, even if there is output buffered.
+
 =back
 
 =head1 SUBSTITUED METHODS
@@ -391,7 +402,7 @@ them anyway?
 
 =head1 LICENSE
 
-Copyright (C) 2002-2003 David Muir Sharnoff <muir@idiom.com>.
+Copyright (C) 2002-2004 David Muir Sharnoff <muir@idiom.com>.
 This module may be used/copied/etc on the same terms as Perl 
 itself.
 

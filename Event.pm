@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.502;
+$VERSION = 0.503;
 
 use strict;
 use warnings;
@@ -74,7 +74,7 @@ sub ie_invoke
 {
 	my ($self, $required, $method, @args) = @_;
 
-	if ($in_callback && ! $self->{ie_reentrant}) {
+	if ($in_callback && ! ${*$self}->{ie_reentrant}) {
 		# we'll do this later
 		push(@pending_callbacks, [ $self, $required, $method, @args ]);
 		return 1;
@@ -86,6 +86,10 @@ sub ie_invoke
 		if $debug;
 
 	return 0 if ! $required && ! ${*$self}{ie_handler}->can($method);
+	if ($debug) {
+		my ($pkg, $line, $func) = caller();
+		print "DISPATCHING $method from $func at line $line\n";
+	}
 	eval {
 		${*$self}{ie_handler}->$method($self, @args);
 	};
@@ -113,6 +117,7 @@ sub ie_dispatch
 	my $fh = ${*$self}{ie_fh};
 	my $got = $event->got;
 	if ($got & R) {
+#print "read dispatch\n";
 		if (${*$self}{ie_listener}) {
 			$self->ie_invoke(1, 'ie_connection');
 		} elsif (${*$self}{ie_autoread}) {
@@ -143,19 +148,27 @@ sub ie_dispatch
 					${*$self}{ie_writeclosed} = $!;
 				}
 			}
-			$self->ie_invoke(0, 'ie_output', $obuf, $rv);
-			if (! length($$obuf)) {
-				$event->ie_invoke(0, 'ie_outputdone', $obuf);
+			if (${*$self}{ie_closerequested}) {
 				if (! length($$obuf)) {
-					$event->poll($event->poll & ~(W));
+					$self->ie_deregister();
+					${*$self}{ie_fh}->close();
+					delete ${*$self}{ie_closerequested};
 				}
-			}
-			if (length($$obuf) > ${*$self}{ie_obufsize}) {
-				$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
-				${*$self}{ie_overflowinvoked} = 1;
-			} elsif (${*$self}{ie_overflowinvoked}) {
-				$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
-				${*$self}{ie_overflowinvoked} = 0;
+			} else {
+				$self->ie_invoke(0, 'ie_output', $obuf, $rv);
+				if (! length($$obuf)) {
+					$event->ie_invoke(0, 'ie_outputdone', $obuf);
+					if (! length($$obuf)) {
+						$event->poll($event->poll & ~(W));
+					}
+				}
+				if (length($$obuf) > ${*$self}{ie_obufsize}) {
+					$self->ie_invoke(0, 'ie_outputoverflow', 1, $obuf);
+					${*$self}{ie_overflowinvoked} = 1;
+				} elsif (${*$self}{ie_overflowinvoked}) {
+					$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
+					${*$self}{ie_overflowinvoked} = 0;
+				}
 			}
 		}
 	}
@@ -192,7 +205,7 @@ sub ie_dispatch
 	}
 }
 
-# same name as handler since we want to control how ie_input is called
+# same name as handler since we want to control how ie_input is called 
 sub ie_input
 {
 	my $self = shift;
@@ -201,23 +214,32 @@ sub ie_input
 	# 
 	# We'll loop just to make sure we don't miss an event
 	# 
+	my $some = 0;
+#my $pass = 0;
 	for (;;) {
 		my $ol = length($$ibuf);
 		my $rv = ${*$self}{ie_fh}->read($$ibuf, BUFSIZ, $ol);
 
 		if ($rv) {
+			$some = 1;
 			delete ${*$self}{ie_readclosed};
 		} elsif (defined($rv)) {
 			# must be 0 and closed!
 			${*$self}{ie_readclosed} = 1;
 			last;
 		} elsif ($! = EAGAIN) {
+			#
+			# Perl 5.8.3 on Linux will return undef/EAGAIN at eof.
+			#
+			${*$self}{ie_readclosed} = $!
+				unless $some;
 			last;
 		} else {
 			# errors other than EAGAIN aren't recoverable
 			${*$self}{ie_readclosed} = $!;
 		}
 
+#print "PASS $pass\n"; $pass++;
 		$self->ie_invoke(1, 'ie_input', $ibuf);
 	}
 
@@ -226,6 +248,8 @@ sub ie_input
 			if length($$ibuf);
 		$self->ie_invoke(0, 'ie_eof', $ibuf)
 			unless ${*$self}{ie_eofinvoked}++;
+		my $event = ${*$self}{ie_event};
+		$event->poll($event->poll & ~R);
 	}
 }
 
@@ -265,7 +289,11 @@ sub autoread
 	my $old = ${*$self}{ie_autoread};
 	if (@_) {
 		${*$self}{ie_autoread} = $_[0];
-		delete ${*$self}{ie_readclosed};
+		if (${*$self}{ie_readclosed}) {
+			delete ${*$self}{ie_readclosed};
+			my $event = ${*$self}{ie_event};
+			$event->poll($event->poll | R);
+		}
 	}
 	return $old;
 }
@@ -373,20 +401,22 @@ sub getsome
 		unless defined $length;
 	my $tmp = substr($$ibuf, 0, $length);
 	substr($$ibuf, 0, $length) = '';
-	return undef if ! length($tmp) && ! ${*$self}{ie_fh}->eof;
+	return undef if ! length($tmp) && ! $self->eof2;
 	return $tmp;
 }
 
-# from IO::Socket
+# from base perl
+# will this work right for SOCK_DGRAM?
 sub connect
 {
 	my $self = shift;
 	my $fh = ${*$self}{ie_fh};
 	my $rv = $fh->connect(@_);
 	$self->reset;
+	my $event = ${*$self}{ie_event};
+	$event->poll($event->poll | R);
 	unless($fh->connected()) {
 		${*$self}{ie_connecting} = 1;
-		my $event = ${*$self}{ie_event};
 		$event->poll($event->poll | W);
 		${*$self}{ie_connect_timeout} = time 
 			+ ${*$self}{ie_socket_timeout}
@@ -445,6 +475,12 @@ sub input_record_separator
 	my $old = ${*$self}{ie_irs};
 	${*$self}{ie_irs} = $_[0]
 		if @_;
+	if ($debug) {
+		my $fn = $self->fileno;
+		my $x = ${*$self}{ie_irs};
+		$x =~ s/\n/\\n/g;
+		print "input_record_separator($fn) = '$x'\n";
+	}
 	return $old;
 }
 
@@ -452,8 +488,23 @@ sub input_record_separator
 sub close
 {
 	my ($self) = @_;
+	my $obuf = \${*$self}{ie_obuf};
+	if (length($$obuf)) {
+		${*$self}{ie_closerequested} = 1;
+		${*$self}{ie_writeclosed} = 1;
+		${*$self}{ie_readclosed} = 1;
+	} else {
+		$self->forceclose;
+	}
+}
+
+sub forceclose
+{
+	my ($self) = @_;
 	$self->ie_deregister();
 	${*$self}{ie_fh}->close();
+	${*$self}{ie_writeclosed} = 1;
+	${*$self}{ie_readclosed} = 1;
 }
 
 # from IO::Handle
@@ -498,7 +549,7 @@ sub sysread
 	my $ibuf = \${*$self}{ie_ibuf};
 	my $length = length($$ibuf);
 
-	return undef unless $length >= $_[1] || ${*$self}{ie_fh}->eof;
+	return undef unless $length >= $_[1] || $self->eof2;
 
 	(defined $_[2] ? 
 		substr ($_[0], $_[2], length($_[0]))
@@ -526,11 +577,10 @@ sub get
 	my $self = shift;
 	return undef unless ${*$self}{ie_autoread};
 	my $ibuf = \${*$self}{ie_ibuf};
-	my $fh = ${*$self}{ie_fh};
 	my $irs = "\n";
 	my $index = index($$ibuf, $irs);
 	if ($index < 0) {
-		return undef unless $fh->eof;
+		return undef unless $self->eof2;
 		my $l = $$ibuf;
 		$$ibuf = '';
 		return undef unless length($l);
@@ -570,11 +620,11 @@ sub getline
 	if ($irs =~ /^\d/ && int($irs)) {
 		if ($irs > 0 && length($$ibuf) >= $irs) {
 			$line = substr($$ibuf, 0, $irs);
-		} elsif (${*$self}{ie_fh}->eof) {
+		} elsif ($self->eof2) {
 			$line = $$ibuf;
 		} 
 	} elsif (! defined $irs) {
-		if (${*$self}{ie_fh}->eof) {
+		if ($self->eof2) {
 			$line = $$ibuf;
 		} 
 	} elsif ($irs eq '') {
@@ -582,14 +632,26 @@ sub getline
 		$$ibuf =~ s/^\n+//;
 		$irs = "\n\n";
 		$index = index($$ibuf, "\n\n");
+		if ($debug) {
+			my $x = $$ibuf;
+			$x =~ s/\n/\\n/g;
+			print "looked for '\\n\\n' in '$x' got $index\n";
+		}
 	} else {
 		# multi-character (or just \n)
 		$index = index($$ibuf, $irs);
+		if ($debug) {
+			my $x = $$ibuf;
+			$x =~ s/\n/\\n/g;
+			my $y = $irs;
+			$y =~ s/\n/\\n/g;
+			print "looked for '$y' in '$x' got $index\n";
+		}
 	}
 	if (defined $index) {
 		$line = $index > -1
 			? substr($$ibuf, 0, $index+length($irs))
-			: (${*$self}{ie_fh}->eof ? $$ibuf : undef);
+			: ($self->eof2 ? $$ibuf : undef);
 	}
 	return undef unless defined($line) && length($line);
 	substr($$ibuf, 0, length($line)) = '';
@@ -610,22 +672,27 @@ sub getlines
 	return undef unless ${*$self}{ie_autoread};
 	my $ibuf = \${*$self}{ie_ibuf};
 	#my $ol = length($$ibuf);
-	my $fh = ${*$self}{ie_fh};
 	my $irs = exists ${*$self}{ie_irs} ? ${*$self}{ie_irs} : $/;
 	my @lines;
+	if ($debug) {
+		my $x = $irs;
+		$x =~ s/\n/\\n/g;
+		my $fn = $self->fileno;
+		print "getlines($fn, '$x')\n";
+	}
 	if ($irs =~ /^\d/ && int($irs)) {
 		if ($irs > 0) {
 			@lines = unpack("(a$irs)*", $$ibuf);
 			$$ibuf = '';
 			$$ibuf = pop(@lines)
-				if length($lines[$#lines]) != $irs && ! $fh->eof;
+				if length($lines[$#lines]) != $irs && ! $self->eof2;
 		} else {
-			return undef unless $fh->eof;
+			return undef unless $self->eof2;
 			@lines = $$ibuf;
 			$$ibuf = '';
 		}
 	} elsif (! defined $irs) {
-		return undef unless $fh->eof;
+		return undef unless $self->eof2;
 		@lines = $$ibuf;
 		$$ibuf = '';
 	} elsif ($irs eq '') {
@@ -634,7 +701,14 @@ sub getlines
 		@lines = grep($_ ne '', split(/(.*?\n\n)\n*/s, $$ibuf));
 		$$ibuf = '';
 		$$ibuf = pop(@lines)
-			if substr($lines[$#lines], -2) ne "\n\n" && ! $fh->eof;
+			if @lines && substr($lines[$#lines], -2) ne "\n\n" && ! $self->eof2;
+		if ($debug) {
+			my $x = join('|', @lines);
+			$x =~ s/\n/\\n/g;
+			my $y = $$ibuf;
+			$y =~ s/\n/\\n/g;
+			print "getlines returns '$x' but holds onto '$y'\n";
+		}
 	} else {
 		# multicharacter
 		#$rxcache{$irs} = qr/(?<=\Q$irs\E)/
@@ -646,7 +720,7 @@ sub getlines
 			unless @lines;
 		$$ibuf = '';
 		$$ibuf = pop(@lines)
-			if substr($lines[$#lines], 0-length($irs)) ne $irs && ! $fh->eof;
+			if substr($lines[$#lines], 0-length($irs)) ne $irs && ! $self->eof2;
 	}
 	return @lines;
 }
@@ -685,6 +759,7 @@ sub print
 		if ${*$self}{ie_writeclosed};
 	my $ol;
 	my $rv;
+	my $er;
 	my $obuf = \${*$self}{ie_obuf};
 	if ($ol = length($$obuf)) {
 		$$obuf .= join('', @data);
@@ -693,9 +768,11 @@ sub print
 		my $fh = ${*$self}{ie_fh};
 		my $data = join('', @data);
 		$rv = CORE::syswrite($fh, $data);
-		if ($rv < length($data)) {
+		if (defined($rv) && $rv < length($data)) {
 			$$obuf = substr($data, $rv, length($data)-$rv);
 			$self->ie_drain;
+		} else {
+			$er = 0+$!;
 		}
 	}
 	if (length($$obuf) > ${*$self}{ie_obufsize}) {
@@ -705,6 +782,7 @@ sub print
 		$self->ie_invoke(0, 'ie_outputoverflow', 0, $obuf);
 		${*$self}{ie_overflowinvoked} = 0;
 	}
+	$! = $er;
 	return $rv;
 }
 
@@ -713,12 +791,45 @@ sub eof
 {
 	my ($self) = @_;
 	return 0 if length(${*$self}{ie_ibuf});
+	return 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
 	return ${*$self}{ie_fh}->eof;
+}
+
+# internal use only.
+# just like eof, but we assume the input buffer is empty
+sub eof2
+{
+	my ($self) = @_;
+	if ($debug) {
+		my $fn = $self->fileno;
+		print "eof2($fn)...";
+		print " readclosed" if ${*$self}{ie_readclosed};
+		print " autoread" if ${*$self}{ie_autoread};
+		print " EOF" if ${*$self}{ie_fh}->eof;
+		my $x;
+		$x = 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
+		$x = ${*$self}{ie_fh}->eof unless defined $x;
+		print " =$x\n";
+	}
+	return 0 if ${*$self}{ie_autoread} && ! ${*$self}{ie_readclosed};
+	return ${*$self}{ie_fh}->eof;
+}
+
+sub fileno
+{
+	my $self = shift;
+	return ${*$self}{ie_fileno}
+		if defined ${*$self}{ie_fileno};
+	return ${*$self}{ie_fh}->fileno();
 }
 
 sub DESTROY
 {
-	# we need this so we don't try to AUTOLOAD a DESTROY during global destruction
+	my $self = shift;
+	my $no = $self->fileno;
+	print "DESTROY $no...\n" if $debug;
+	${*$self}{ie_event}->cancel
+		if ${*$self}{ie_event};
 }
 
 sub AUTOLOAD

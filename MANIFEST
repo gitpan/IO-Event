@@ -7,4 +7,5 @@ CHANGELOG
 t/callbacks.t
 t/getline.t
 t/multifork.t
+t/forked.t
 META.yml

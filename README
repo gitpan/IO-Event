@@ -13,6 +13,9 @@ DESCRIPTION
     Most of the time file handling syntax will work fine: "<$filehandle>"
     and "print $filehandle 'stuff'".
 
+    After initial setup, call "Event::loop()". The callbacks are dispatched
+    through Event.
+
 CONSTRUCTORS
     IO::Event->new($filehandle, $handler)
         The basic "new" constructor takes a filehandle and returns a
@@ -46,32 +49,32 @@ MANDATORY HANDLERS
     These handler methods must be available in the handler object/class if
     the situation in which they would be called arises.
 
-    ie_input($handler, $ieo, $input_buffer_reference)
+    ie_input($handler, $ioe, $input_buffer_reference)
         Invoked when there is fresh data in the input buffer. The input can
         be retreived via directly reading it from $$input_buffer_reference
-        or via "read()" from the $ieo filehandle, or by using a variety of
+        or via "read()" from the $ioe filehandle, or by using a variety of
         standard methods for getting data:
 
-                <$ieo>                  like IO::Handle
-                $ieo->get()             like Data::LineBuffer
-                $ieo->read()            like IO::Handle
-                $ieo->sysread()         like IO::Handle
-                $ieo->getline()         like IO::Handle
-                $ieo->getlines()        like IO::Handle
-                $ieo->getsome()         see below
-                $ieo->ungets()          like FileHandle::Unget
+                <$ioe>                  like IO::Handle
+                $ioe->get()             like Data::LineBuffer
+                $ioe->read()            like IO::Handle
+                $ioe->sysread()         like IO::Handle
+                $ioe->getline()         like IO::Handle
+                $ioe->getlines()        like IO::Handle
+                $ioe->getsome()         see below
+                $ioe->ungets()          like FileHandle::Unget
 
         At end-of-file, ie_input will only be invoked once. There may or may
         not be data in the input buffer.
 
-    ie_connection($handler, $ieo)
+    ie_connection($handler, $ioe)
         Invoked when a listen()ing socket is ready to accept(). It should
         call accept:
 
                 sub ie_connection
                 {
-                        my ($ieo) = @_;
-                        my $newfh = $ieo->accept()
+                        my ($ioe) = @_;
+                        my $newfh = $ioe->accept()
                 }
 
     ie_read_ready($handler, $underlying_file_handle)
@@ -85,7 +88,7 @@ OPTIONAL HANDLERS
     These handler methods will be called if they are defined but it is not
     required that they be defined.
 
-    ie_eof($handler, $ieo, $input_buffer_reference)
+    ie_eof($handler, $ioe, $input_buffer_reference)
         This is invoked when the read-side of the filehandle has been closed
         by its source.
 
@@ -103,7 +106,7 @@ OPTIONAL HANDLERS
     ie_connect_timeout
         This is invoked when a "connect()" attempt times out.
 
-    ie_died($handler, $ieo, $method, $@)
+    ie_died($handler, $ioe, $method, $@)
         If another handler calls "die" then ie_died will be called with the
         IO::Event object, the name of the method just invoked, and the die
         string. If no ie_died() callback exists then execution will
@@ -117,7 +120,7 @@ OPTIONAL HANDLERS
         Invoked when an exceptional condition arises on the underlying
         filehandle
 
-    ie_outputoverflow($handler, $ieo, $overflowing,
+    ie_outputoverflow($handler, $ioe, $overflowing,
     $output_buffer_reference)
         Invoked when there is too much output data and the output buffers
         are overflowing. You can take some action to generate less output.
@@ -134,7 +137,6 @@ METHODS
             connect
             listen
             open
-            close
             read
             sysread
             syswrite
@@ -164,8 +166,8 @@ METHODS
     ->accept($handler)
         accept() is nearly identical to the normal IO::Socket::accept()
         method except that instead of optionally passing a class specifier
-        for the new socket, you optionally pass a handler object/class. The
-        returned filehandle is an IO::Event object.
+        for the new socket, you optionally pass a handler object or class.
+        The returned filehandle is an IO::Event object.
 
     ->can_read($amount)
         Returns true if $amount bytes worth of input is available for
@@ -240,6 +242,13 @@ METHODS
         away. For example, you will not learn the the output buffer is
         overflowing during print(). You'll have to wait for the output
         buffer to begin draining to find out. This could be a problem.
+
+    ->close()
+        If there is output buffered, close will be delayed until the output
+        buffer drains.
+
+    ->forceclose
+        Close close immediately, even if there is output buffered.
 
 SUBSTITUED METHODS
     Any method invocations that fail because the method isn't defined in
@@ -318,6 +327,6 @@ BUGS
     anyway?
 
 LICENSE
-    Copyright (C) 2002-2003 David Muir Sharnoff <muir@idiom.com>. This
+    Copyright (C) 2002-2004 David Muir Sharnoff <muir@idiom.com>. This
     module may be used/copied/etc on the same terms as Perl itself.
 

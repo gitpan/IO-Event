@@ -1,4 +1,10 @@
 
+= 2004/04/20	0.503
+
+Bugfix: eof was falsing positive
+
+Bugfix: partial lines were being returned for <$ieo>
+
 = 2004/02/24	0.502
 
 Added can_read()
