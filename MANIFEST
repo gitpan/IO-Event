@@ -1,0 +1,8 @@
+Event.pm
+Event.pod
+Makefile.PL
+MANIFEST
+README
+CHANGELOG
+t/callbacks.t
+t/getline.t
