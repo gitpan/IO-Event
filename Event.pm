@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.505;
+$VERSION = 0.506;
 
 use strict;
 use warnings;
@@ -267,7 +267,8 @@ sub ie_input
 		$self->ie_invoke(0, 'ie_eof', $ibuf)
 			unless ${*$self}{ie_eofinvoked}++;
 		my $event = ${*$self}{ie_event};
-		$event->poll($event->poll & ~R);
+		$event->poll($event->poll & ~R)
+			if $event;
 	}
 }
 
@@ -364,6 +365,7 @@ sub ie_deregister
 	my $fh = ${*$self}{ie_fh};
 	delete $fh_table{$fh};
 	${*$self}{ie_event}->cancel;
+	delete ${*$self}{ie_event};
 }
 
 # the standard max() function
