@@ -24,7 +24,7 @@ dispatched through L<Event>.
 
 =over 4
 
-=item IO::Event->new($filehandle, $handler)
+=item IO::Event->new($filehandle, [ $handler, [ $options ]])
 
 The basic C<new> constructor takes a filehandle and returns
 a psuedo-filehandle.  Treat the IO::Event object as
@@ -35,6 +35,26 @@ can fix the problem).
 The handler is the class or object where you provide callback
 functions to handle IO events.  It defaults to the package
 of the calling context. 
+
+If present, C<$options> is a hash reference with the following
+possible keys:
+
+=over 13
+
+=item description
+
+A text description of this filehandle.  Used for debugging and
+error messages.
+
+=item read_only
+
+Set to true if this is a read-only filehandle.  Do not accept output.
+
+=item write_only
+
+Set to true if this is a write-only filehandle.  Do not attept to read.
+
+=back
 
 =item IO::Event::Socket::INET->new( [ARGS] )
 

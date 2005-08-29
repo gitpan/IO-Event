@@ -1,3 +1,8 @@
+
+= 2005/08/29	0.507
+
+Add support for read-only and write-only descriptors.
+
 = 2005/01/27	0.506
 
 Drop Event objects to prevent memory leaks.

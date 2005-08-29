@@ -6,11 +6,11 @@ use Event::Watcher qw(R W E T);
 use Symbol;
 use Carp;
 require IO::Handle;
-use POSIX qw(BUFSIZ EAGAIN EBADF);
+use POSIX qw(BUFSIZ EAGAIN EBADF EINVAL);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.506;
+$VERSION = 0.507;
 
 use strict;
 use warnings;
@@ -25,7 +25,7 @@ our $in_callback = 0;
 
 sub new
 {
-	my ($pkg, $fh, $handler, $description) = @_;
+	my ($pkg, $fh, $handler, $options) = @_;
 
 	# stolen from IO::Handle
 	my $self = bless gensym(), $pkg;
@@ -35,6 +35,12 @@ sub new
 
 	confess unless ref $fh;
 
+	unless (ref $options) {
+		$options = {
+			description => $options,
+		};
+	}
+
 	# stolen from IO::Socket
 	${*$self}{ie_fh} = $fh;
 	${*$self}{ie_handler} = $handler;
@@ -43,7 +49,9 @@ sub new
 	${*$self}{ie_obufsize} = BUFSIZ*4;
 	${*$self}{ie_autoread} = 1;
 	${*$self}{ie_pending} = {};
-	${*$self}{ie_desc} = $description || "wrapper for $fh";
+	${*$self}{ie_desc} = $options->{description} || "wrapper for $fh";
+	${*$self}{ie_writeclosed} = EINVAL if $options->{read_only};
+	${*$self}{ie_readclosed} = EINVAL if $options->{write_only};
 
 	$self->ie_register();
 	$fh->blocking(0);
@@ -347,9 +355,12 @@ sub ie_register
 	my $fh = ${*$self}{ie_fh};
 	$fh->blocking(0);
 	$fh->autoflush(1);
+	my $R = ${*$self}{ie_readclosed}
+		? 0
+		: R;
 	${*$self}{ie_event} = Event->io(
 		fd	=> (${*$self}{ie_fileno} = $fh->fileno),
-		poll	=> R|E|T,
+		poll	=> E|T|$R,
 		cb	=> [ $self, 'ie_dispatch' ],
 		desc	=> ${*$self}{ie_desc},
 		edebug	=> $edebug,

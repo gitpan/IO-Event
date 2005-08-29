@@ -17,7 +17,7 @@ DESCRIPTION
     through Event.
 
 CONSTRUCTORS
-    IO::Event->new($filehandle, $handler)
+    IO::Event->new($filehandle, [ $handler, [ $options ]])
         The basic "new" constructor takes a filehandle and returns a
         psuedo-filehandle. Treat the IO::Event object as a filehandle. Do
         not use the original filehandle without good reason (let us know if
@@ -26,6 +26,18 @@ CONSTRUCTORS
         The handler is the class or object where you provide callback
         functions to handle IO events. It defaults to the package of the
         calling context.
+
+        If present, $options is a hash reference with the following possible
+        keys:
+
+        description  A text description of this filehandle. Used for
+                     debugging and error messages.
+
+        read_only    Set to true if this is a read-only filehandle. Do not
+                     accept output.
+
+        write_only   Set to true if this is a write-only filehandle. Do not
+                     attept to read.
 
     IO::Event::Socket::INET->new( [ARGS] )
         This constructor uses IO::Socket::INET->new() to create a socket
