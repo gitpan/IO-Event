@@ -30,7 +30,7 @@ CONSTRUCTORS
         If present, $options is a hash reference with the following possible
         keys:
 
-        description  A text description of this filehandle. Used for
+        Description  A text description of this filehandle. Used for
                      debugging and error messages.
 
         read_only    Set to true if this is a read-only filehandle. Do not
@@ -85,14 +85,14 @@ MANDATORY HANDLERS
 
                 sub ie_connection
                 {
-                        my ($ioe) = @_;
+                        my ($pkg, $ioe) = @_;
                         my $newfh = $ioe->accept()
                 }
 
-    ie_read_ready($handler, $underlying_file_handle)
+    ie_read_ready($handler, $ioe, $underlying_file_handle)
         If autoreading is turned off then this will be invoked.
 
-    ie_werror($handler, $output_buffer_reference)
+    ie_werror($handler, $ioe, $output_buffer_reference)
         A write error has occured when trying to drain the write buffer.
         Provide an empty subroutine if you don't care.
 
@@ -115,8 +115,9 @@ OPTIONAL HANDLERS
     ie_connected
         This is invoked when a "connect()" completes.
 
-    ie_connect_timeout
-        This is invoked when a "connect()" attempt times out.
+    ie_connect_failed($handler, $ioe, $error_code)
+        This is invoked when a "connect()" fails. For a timeout, the error
+        code will be ETIMEOUT.
 
     ie_died($handler, $ioe, $method, $@)
         If another handler calls "die" then ie_died will be called with the
@@ -339,6 +340,6 @@ BUGS
     anyway?
 
 LICENSE
-    Copyright (C) 2002-2004 David Muir Sharnoff <muir@idiom.com>. This
+    Copyright (C) 2002-2005 David Muir Sharnoff <muir@idiom.com>. This
     module may be used/copied/etc on the same terms as Perl itself.
 

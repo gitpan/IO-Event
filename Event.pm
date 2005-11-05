@@ -6,11 +6,11 @@ use Event::Watcher qw(R W E T);
 use Symbol;
 use Carp;
 require IO::Handle;
-use POSIX qw(BUFSIZ EAGAIN EBADF EINVAL);
+use POSIX qw(BUFSIZ EAGAIN EBADF EINVAL ETIMEDOUT);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.507;
+$VERSION = 0.601;
 
 use strict;
 use warnings;
@@ -130,8 +130,6 @@ sub ie_dispatch
 	my ($self, $ievent) = @_;
 	my $fh = ${*$self}{ie_fh};
 	my $got = $ievent->got;
-#print STDERR "GOT $got\n";
-#print STDERR "event: $ievent ie_event: ${*$self}{ie_event}\n";
 	my $event = ${*$self}{ie_event};
 	{
 		if ($got & R) {
@@ -218,7 +216,7 @@ sub ie_dispatch
 				&& time >= ${*$self}{ie_connect_timeout})
 			{
 				delete ${*$self}{ie_connect_timeout};
-				$self->ie_invoke(0, 'ie_connect_timeout')
+				$self->ie_invoke(0, 'ie_connect_failed', ETIMEDOUT)
 					|| $event->ie_invoke(0, 'ie_timer');
 			} else {
 				$event->ie_invoke(0, 'ie_timer');
@@ -267,13 +265,23 @@ sub ie_input
 		}
 
 		$self->ie_invoke(1, 'ie_input', $ibuf);
+		last if ${*$self}{ie_readclosed};
 	}
 
 	if (${*$self}{ie_readclosed}) {
 		$self->ie_invoke(1, 'ie_input', $ibuf)
 			if length($$ibuf);
-		$self->ie_invoke(0, 'ie_eof', $ibuf)
-			unless ${*$self}{ie_eofinvoked}++;
+		if (${*$self}{ie_connecting}) {
+			${*$self}{ie_writeclosed} = $!;
+			my $event = ${*$self}{ie_event};
+			$event->poll($event->poll & ~(W));
+			delete ${*$self}{ie_connecting};
+			delete ${*$self}{ie_connect_timeout};
+			$self->ie_invoke(0, 'ie_connect_failed', $!);
+		} else {
+			$self->ie_invoke(0, 'ie_eof', $ibuf)
+				unless ${*$self}{ie_eofinvoked}++;
+		}
 		my $event = ${*$self}{ie_event};
 		$event->poll($event->poll & ~R)
 			if $event;
@@ -375,7 +383,8 @@ sub ie_deregister
 	my ($self) = @_;
 	my $fh = ${*$self}{ie_fh};
 	delete $fh_table{$fh};
-	${*$self}{ie_event}->cancel;
+	${*$self}{ie_event}->cancel
+		if ${*$self}{ie_event};
 	delete ${*$self}{ie_event};
 }
 
@@ -803,7 +812,7 @@ sub getc
 sub print
 {
 	my ($self, @data) = @_;
-	$! = ${*$self}{ie_writeclosed} && return undef 	
+	$! = ${*$self}{ie_writeclosed} && return undef
 		if ${*$self}{ie_writeclosed};
 	my $ol;
 	my $rv;
@@ -1023,7 +1032,12 @@ sub new
 	}
 
 	my $desc = $ds{Description} 
-		|| join(" ", map { "$_=$ds{$_}" } sort keys %ds);
+		|| join(" ", 
+			map { 
+				defined $ds{$_} 
+					? "$_=$ds{$_}" 
+					: $_
+			} sort keys %ds);
 
 	return undef unless $fh;
 	my $self = $pkg->SUPER::new($fh, $handler, $desc);

@@ -1,5 +1,6 @@
 Event.pm
 Event.pod
+rinetd.pl
 Makefile.PL
 MANIFEST
 README

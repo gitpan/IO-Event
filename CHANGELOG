@@ -1,4 +1,19 @@
 
+= 2005/11/04	0.601
+
+Added example program: rinetd.pl
+
+API CHANGE: 
+Replaced ie_connect_timeout() with ie_connect_failed().  
+Previously ie_eof() would be called for non-timeout connection
+failures.  Now ie_connect_failed() handles all connection failues.
+
+Documentation fixes.
+
+= 2005/08/29	0.508
+
+Bugfix: don't try to read recently-closed filehandles.
+
 = 2005/08/29	0.507
 
 Add support for read-only and write-only descriptors.

@@ -41,7 +41,7 @@ possible keys:
 
 =over 13
 
-=item description
+=item Description
 
 A text description of this filehandle.  Used for debugging and
 error messages.
@@ -115,15 +115,15 @@ It should call accept:
 
 	sub ie_connection
 	{
-		my ($ioe) = @_;
+		my ($pkg, $ioe) = @_;
 		my $newfh = $ioe->accept()
 	}
 
-=item ie_read_ready($handler, $underlying_file_handle)
+=item ie_read_ready($handler, $ioe, $underlying_file_handle)
 
 If autoreading is turned off then this will be invoked.
 
-=item ie_werror($handler, $output_buffer_reference)
+=item ie_werror($handler, $ioe, $output_buffer_reference)
 
 A write error has occured when trying to drain the write
 buffer.  Provide an empty subroutine if you don't care.
@@ -140,7 +140,7 @@ but it is not required that they be defined.
 =item ie_eof($handler, $ioe, $input_buffer_reference)
 
 This is invoked when the read-side of the filehandle has
-been closed by its source.
+been closed by its source.  
 
 =item ie_output
 
@@ -156,9 +156,10 @@ to the underlying filehandle.
 
 This is invoked when a C<connect()> completes.
 
-=item ie_connect_timeout
+=item ie_connect_failed($handler, $ioe, $error_code)
 
-This is invoked when a C<connect()> attempt times out.
+This is invoked when a C<connect()> fails.  For a timeout,
+the error code will be ETIMEOUT.
 
 =item ie_died($handler, $ioe, $method, $@)
 
@@ -422,7 +423,7 @@ them anyway?
 
 =head1 LICENSE
 
-Copyright (C) 2002-2004 David Muir Sharnoff <muir@idiom.com>.
+Copyright (C) 2002-2005 David Muir Sharnoff <muir@idiom.com>.
 This module may be used/copied/etc on the same terms as Perl 
 itself.
 

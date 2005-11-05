@@ -1,12 +1,16 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         IO-Event
-version:      0.507
+version:      0.601
 version_from: Event.pm
 installdirs:  site
 requires:
     Event:                         0.87
+    File::Flock:                   0
+    File::Slurp:                   0
+    Getopt::Long:                  0
     IO::Handle:                    0
+    Net::Netmask:                  0
     Test::Simple:                  0
     Time::HiRes:                   0
 
