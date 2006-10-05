@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF EINVAL ETIMEDOUT);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.601;
+$VERSION = 0.602;
 
 use strict;
 use warnings;

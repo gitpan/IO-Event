@@ -421,6 +421,18 @@ of the code.
 Nothing sane is done with excptional conditions.  What causes
 them anyway?
 
+=head1 THANK THE AUTHOR
+
+If you found this module useful, please show your appreaciation
+by giving me a chance to offer services.  I can offer two kinds
+of service: Internet access and Perl programming.  I run multiple
+ISPs and have access to very good pricing for high-speed Internet
+access in the USA.  In particular, give me a chance to quote T1s,
+T3s, OC3s, and such.  Also: wholesale DSL and dialup.  For perl
+programming, my rates vary based on the situation: proprietary 
+vs open source; work-at-home vs on-site; helping the world vs
+lining someone's pocket; etc.
+
 =head1 LICENSE
 
 Copyright (C) 2002-2005 David Muir Sharnoff <muir@idiom.com>.

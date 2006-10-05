@@ -5,7 +5,7 @@ my $configfile = '/etc/rinetd.pl.conf';
 my $logger_args = "-t $0";
 my $debug = 0;
 
-$main::VERSION = '1.0';
+$main::VERSION = '1.1';
 
 use strict;
 use IO::Event;
@@ -102,14 +102,12 @@ usage() unless $do eq 'reload' || $do eq 'restart' || $do eq 'start';
 unless ($foreground) {
 	print "Starting $0 server\n";
 	my $pid;
-	exit if $pid = fork;
+	POSIX::_exit(0) if $pid = fork;
 	die "Could not fork: $!" unless defined $pid;
-	exit if $pid = fork;
+	POSIX::_exit(0) if $pid = fork;
 	die "Could not fork: $!" unless defined $pid;
 
 	POSIX::setsid();
-
-	$locked = 0; # why?
 
 	open(STDERR, "|logger $logger_args");
 } else {
@@ -385,7 +383,7 @@ sub new
 		other	=> $other,
 		role	=> $role,
 		desc	=> $desc,
-		coutner	=> $counter++,
+		counter	=> $counter++,
 	}, $pkg;
 	$ioe->handler($self);
 	$ioe->readevents(1);
