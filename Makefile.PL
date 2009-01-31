@@ -21,6 +21,7 @@ WriteMakefile(
 		'File::Slurp' => 0,
 		'File::Flock' => 0,
 		'Net::Netmask' => 0,
+		'Daemon::Generic' => 0,
 	 },
 );
 

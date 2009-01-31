@@ -41,7 +41,7 @@ possible keys:
 
 =over 13
 
-=item Description
+=item description
 
 A text description of this filehandle.  Used for debugging and
 error messages.
@@ -53,6 +53,10 @@ Set to true if this is a read-only filehandle.  Do not accept output.
 =item write_only
 
 Set to true if this is a write-only filehandle.  Do not attept to read.
+
+=item autoread
+
+Set to 0 if this should not be an auto-read filehandle.
 
 =back
 
@@ -226,13 +230,27 @@ IO::Event defines its own methods too:
 
 =over 4
 
-=item ->accept($handler)
+=item ->accept($handler, %options)
 
 accept() is nearly identical to the normal IO::Socket::accept()
 method except that instead of optionally passing a class
 specifier for the new socket, you optionally pass a 
 handler object or class.   The returned filehandle is an
 IO::Event object.
+
+Supported options:
+
+=over
+
+=item description
+
+Sets the description for the new socket
+
+=item autoread
+
+Set to 0 if you do not want auto-read
+
+=back
 
 =item ->can_read($amount)
 
@@ -415,27 +433,11 @@ using Event or POE.
 
 =head1 BUGS
 
-This code is still greenish.   The test suite only covers 40% 
-of the code.
-
-Nothing sane is done with excptional conditions.  What causes
-them anyway?
-
-=head1 THANK THE AUTHOR
-
-If you found this module useful, please show your appreaciation
-by giving me a chance to offer services.  I can offer two kinds
-of service: Internet access and Perl programming.  I run multiple
-ISPs and have access to very good pricing for high-speed Internet
-access in the USA.  In particular, give me a chance to quote T1s,
-T3s, OC3s, and such.  Also: wholesale DSL and dialup.  For perl
-programming, my rates vary based on the situation: proprietary 
-vs open source; work-at-home vs on-site; helping the world vs
-lining someone's pocket; etc.
+The test suite only covers 40% of the code.
 
 =head1 LICENSE
 
-Copyright (C) 2002-2005 David Muir Sharnoff <muir@idiom.com>.
+Copyright (C) 2002-2009 David Muir Sharnoff <muir@idiom.org>.
 This module may be used/copied/etc on the same terms as Perl 
 itself.
 

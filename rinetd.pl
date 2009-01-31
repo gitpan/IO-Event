@@ -1,11 +1,8 @@
 #!/usr/bin/perl
 
-my $pidbase = '/var/run/rinetd';
-my $configfile = '/etc/rinetd.pl.conf';
-my $logger_args = "-t $0";
 my $debug = 0;
 
-$main::VERSION = '1.1';
+$main::VERSION = '1.2';
 
 use strict;
 use IO::Event;
@@ -13,6 +10,7 @@ use Net::Netmask;
 use Getopt::Long;
 use File::Slurp;
 use File::Flock;
+use Daemon::Generic::Event;
 require POSIX;
 
 my %config;
@@ -20,164 +18,26 @@ my %filters;
 my $counter = 1;
 sub error;
 
-my $foreground = 0;
-
-Getopt::Long::Configure("auto_version");
-GetOptions(
-	'configfile=s'	=> \$configfile,
-	'foreground!'	=> \$foreground,
-) or usage();
-
-usage() if @ARGV != 1;
-
-my $do = shift(@ARGV);
-
-if ($do eq 'help') {
-	usage();
-} elsif ($do eq 'version') {
-	print "$0 - version $main::VERSION\n";
-	exit;
-} 
-
-my $pidfile;
-{
-	my $x = $configfile;
-	$x =~ s!/!.!g;
-	$pidfile = "$pidbase$x.pid";
-}
-
-my %newconfig = preconfig();
-
-print "Configuration looks okay\n" if $do eq 'check';
-
-my $killed = 0;
-my $locked = 0;
-if (-e $pidfile) {
-	if ($locked = lock($pidfile, undef, 'nonblocking')) {
-		# old process is dead
-	} else {
-		sleep(2) if -M $pidfile < 2/86400;
-		my $oldpid = read_file($pidfile);
-		chomp($oldpid);
-		if ($oldpid) {
-			if ($do eq 'stop' or $do eq 'restart') {
-				kill(2,$oldpid) and print "Killed $oldpid\n";
-				exit if $do eq 'stop';
-				$locked = lock($pidfile);
-				$killed = 1;
-			} elsif ($do eq 'reload') {
-				if (kill(1,$oldpid)) {
-					print "Requested reconfiguration\n";
-					exit;
-				} else {
-					print "Kill failed: $!\n";
-				}
-			} elsif ($do eq 'check') {
-				if (kill(0,$oldpid)) {
-					print "$0 running - pid $oldpid\n";
-					exit;
-				} 
-			} else {
-				error "Exiting $0 processing running, use stop, restart, or reload\n";
-			}
-		} else {
-			error "Pid file $pidfile is invalid but locked, exiting\n";
-		}
-	}
-} else {
-	$locked = lock($pidfile, undef, 'nonblocking') 
-		or die "Could not lock pid file $pidfile: $!";
-}
-
-if ($do eq 'reload' || $do eq 'stop' || $do eq 'check' || ($do eq 'restart' && ! $killed)) {
-	print "No $0 running\n";
-}
-
-exit if $do eq 'stop';
-exit if $do eq 'check';
-
-
-usage() unless $do eq 'reload' || $do eq 'restart' || $do eq 'start';
-
-unless ($foreground) {
-	print "Starting $0 server\n";
-	my $pid;
-	POSIX::_exit(0) if $pid = fork;
-	die "Could not fork: $!" unless defined $pid;
-	POSIX::_exit(0) if $pid = fork;
-	die "Could not fork: $!" unless defined $pid;
-
-	POSIX::setsid();
-
-	open(STDERR, "|logger $logger_args");
-} else {
-	print "Starting...\n";
-}
-
-$locked or lock($pidfile, undef, 'nonblocking') 
-	or die "Could not lock pid file $pidfile: $!";
-
-write_file($pidfile, "$$\n");
-
-select(STDERR);
-$| = 1;
-
-postconfig(%newconfig);
-
-my $reload_event = Event->signal(
-	signal	=> 'HUP',
-	desc	=> 'reload on SIGHUP',
-	prio	=> 6,
-	cb	=> sub {
-		print STDERR "Reconfiguration requested\n";
-		postconfig(preconfig());
-	},
+newdaemon(
+	progname	=> 'rinetd.pl',
+	pidbase		=> '/var/run/rinetd',
 );
-my $quit_event = Event->signal(
-	signal	=> 'INT',
-	cb	=> sub { 
-		print STDERR "Quitting...\n";
-		Event::unloop_all();
-	},
-);
-
-Event::loop();
-
-unlink($pidfile);
-
-exit(0);
 
 sub error
 {
 	my $e = shift;
-	if ($do && $do eq 'stop') {
+	if ($ARGV[0] && $ARGV[0] eq 'stop') {
 		warn $e;
 	} else {
 		die $e;
 	}
 }
 		
-sub usage
+sub gd_preconfig
 {
-	print <<END;
-Usage: $0 [ -c file ] [ -f ] { start | stop | reload | restart | help | version  | check }
- -c		specify config file (defaults to /etc/rinetd.pl.conf)
- -f		run in the foreground (don't detach)
- start		Starts a new rinetd.pl if there isn't one running already
- stop		Stops a running rinetd.pl
- reload		Causes a running rinetd.pl to reload it's config file.  Starts
-		a new one if none is running.
- restart	Stops a running rinetd.pl if one is running.  Starts a new one
-		irregardless.
- check		Check the configuration file and report the daemon state
-END
-	exit;
-}
-
-sub preconfig
-{
-	open(CONFIG, $configfile) 
-		or error "open $configfile: $!\n";
+	my $self = shift;
+	open(CONFIG, $self->{configfile}) 
+		or error "open $self->{configfile}: $!\n";
 	my %new;
 	$filters{global} = {};
 	my $last = 'global';
@@ -193,12 +53,12 @@ sub preconfig
 				$block->{action} = $action;
 				$block->storeNetblock($filters{$last});
 			} else {
-				error "parse error $configfile, line $.: $Net::Netmask::error\n";
+				error "parse error $self->{configfile}, line $.: $Net::Netmask::error\n";
 			}
 			next;
 		}
 		/^(\S+)\s+(\w+)\s+(\S+)\s+(\w+)\s*(?:#.*)?$/
-			or error "Parse error $configfile, line $.: $_";
+			or error "Parse error $self->{configfile}, line $.: $_";
 		my ($fhost, $fport, $thost, $tport) = ($1, $2, $3, $4);
 		my $new = join("\n", $fhost, $fport, $thost, $tport, $.);
 		$new{$new} = undef;
@@ -209,8 +69,9 @@ sub preconfig
 	return %new;
 }
 
-sub postconfig
+sub gd_postconfig
 {
+	my $self = shift;
 	my (%new) = @_;
 	for my $old (keys %config) {
 		next if $new{$old};
@@ -544,6 +405,6 @@ numeric -- hostnames are not allowed.
  
 =head1 LICENSE
 
-Copyright (C) 2005 David Muir Sharnoff <muir@idiom.com>.
+Copyright (C) 2005,2006 David Muir Sharnoff <muir@idiom.com>.
 This module may be used/copied/etc on the same terms as Perl 
 itself.

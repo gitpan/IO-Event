@@ -10,7 +10,7 @@ use POSIX qw(BUFSIZ EAGAIN EBADF EINVAL ETIMEDOUT);
 use UNIVERSAL qw(isa);
 use Socket;
 
-$VERSION = 0.602;
+$VERSION = 0.603;
 
 use strict;
 use warnings;
@@ -133,6 +133,7 @@ sub ie_dispatch
 	my $event = ${*$self}{ie_event};
 	{
 		if ($got & R) {
+	# printf STDERR "R%d", fileno(${*$self}{ie_fh});
 	#print "read dispatch\n";
 			if (${*$self}{ie_listener}) {
 				$self->ie_invoke(1, 'ie_connection');
@@ -145,6 +146,7 @@ sub ie_dispatch
 				&& ${*$self}{ie_readclosed};
 		}
 		if ($got & W) {
+			# printf STDERR "W%d", fileno(${*$self}{ie_fh});
 			if (${*$self}{ie_connecting}) {
 #print STDERR "no W\n";
 				$event->poll($event->poll & ~(W));
@@ -178,7 +180,7 @@ sub ie_dispatch
 					last if ${*$self}{ie_writeclosed} 
 						&& ${*$self}{ie_readclosed};
 					if (! length($$obuf)) {
-						$event->ie_invoke(0, 'ie_outputdone', $obuf);
+						$self->ie_invoke(0, 'ie_outputdone', $obuf);
 						last if ${*$self}{ie_writeclosed} 
 							&& ${*$self}{ie_readclosed};
 						if (! length($$obuf)) {
@@ -198,19 +200,31 @@ sub ie_dispatch
 				&& ${*$self}{ie_readclosed};
 		}
 		if ($got & E) {
-			if ($fh->eof) {
+			# printf STDERR "E%d", fileno(${*$self}{ie_fh});
+			if (${*$self}{ie_closerequested}) {
+				$self->forceclose;
+			} elsif (${*$self}{ie_writeclosed} && ${*$self}{ie_readclosed}) {
+				$self->forceclose;
+			} elsif ($fh->eof) {
 				if (length(${*$self}{ie_ibuf})) {
 					$self->ie_invoke(0, 'ie_input', \${*$self}{ie_ibuf});
 				} 
-				$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf})
-					unless ${*$self}{ie_eofinvoked}++;
+				if (${*$self}{ie_eofinvoked}++) {
+					warn "EOF repeat";
+				} else {
+					${*$self}{ie_closecalled} = 0;
+					$self->ie_invoke(0, 'ie_eof', \${*$self}{ie_ibuf});
+					unless (${*$self}{ie_closecalled}) {
+						$self->close;
+					}
+				}
 			} else {
+				# print STDERR "!?!";
 				$self->ie_invoke(0, 'ie_exception');
 			}
-			last if ${*$self}{ie_writeclosed} 
-				&& ${*$self}{ie_readclosed};
 		}
 		if ($got & T) {
+			# printf STDERR "T%d", fileno(${*$self}{ie_fh});
 			if (${*$self}{ie_connecting} 
 				&& ${*$self}{ie_connect_timeout}
 				&& time >= ${*$self}{ie_connect_timeout})
@@ -529,12 +543,13 @@ sub close
 {
 	my ($self) = @_;
 	my $obuf = \${*$self}{ie_obuf};
+	${*$self}{ie_closecalled} = 1;
 	if (length($$obuf)) {
 		${*$self}{ie_closerequested} = 1;
 		${*$self}{ie_writeclosed} = 1;
 		${*$self}{ie_readclosed} = 1;
 	} else {
-		$self->forceclose;
+		return $self->forceclose;
 	}
 }
 
@@ -542,10 +557,12 @@ sub forceclose
 {
 	my ($self) = @_;
 	$self->ie_deregister();
-	${*$self}{ie_fh}->close();
+	my $ret = ${*$self}{ie_fh}->close();
 	${*$self}{ie_writeclosed} = 1;
 	${*$self}{ie_readclosed} = 1;
+	${*$self}{ie_totallyclosed} = 1;
 	print STDERR "forceclose(${*$self}{ie_desc})\n" if $debug;
+	return $ret;
 }
 
 # from IO::Handle
@@ -827,7 +844,7 @@ sub print
 		$rv = CORE::syswrite($fh, $data);
 		if (defined($rv) && $rv < length($data)) {
 			$$obuf = substr($data, $rv, length($data)-$rv);
-			$self->ie_drain;
+			$self->drain;
 		} else {
 			$er = 0+$!;
 		}
