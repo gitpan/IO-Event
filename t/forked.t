@@ -24,7 +24,6 @@ BEGIN	{
 }
 
 use Time::HiRes qw(sleep gettimeofday tv_interval);
-use Event;
 use IO::Pipe;
 use IO::Event;
 use IO::Socket::INET;
@@ -226,7 +225,7 @@ if ($child = fork()) {
 	$timer = Timer->new();
 	$hbtimer = Heartbeat->new();
 
-	$Event::DIED = sub {
+	$Event::DIED = $Event::DIED = sub {
 		Event::verbose_exception_handler(@_);
 		Event::unloop_all();
 	};
@@ -236,7 +235,7 @@ if ($child = fork()) {
 	print $pipe "l";
 
 	print "# PARENT looping\n";
-	Event::loop();
+	IO::Event::loop();
 	print "# PARENT done looping\n";
 } elsif (defined($child)) {
 	print "# CHILD $$ will connect to $addr:$rp\n" if $debug;
@@ -393,7 +392,7 @@ sub new
 	my ($pkg) = @_;
 	my $self = bless { }, $pkg;
 
-	$self->{event} = Event->timer(
+	$self->{event} = IO::Event->timer(
 		cb		=> [ $self, 'timeout' ],
 		interval	=> $inactivity,
 		hard		=> 0,
@@ -405,7 +404,7 @@ sub timeout
 {
 	print STDERR "Timeout\n";
 	kill 9, $child;
-	Event::unloop_all(7.2);
+	IO::Event::unloop_all(7.2);
 	exit(1);
 }
 
@@ -427,7 +426,7 @@ sub new
 	my ($pkg) = @_;
 	my $self = bless { }, $pkg;
 
-	$self->{event} = Event->timer(
+	$self->{event} = IO::Event->timer(
 		cb		=> [ $self, 'timeout' ],
 		interval	=> $heartbeat,
 		hard		=> 0,
@@ -441,4 +440,5 @@ sub timeout
 	print $pipe "t";
 }
 
+1;
 __END__

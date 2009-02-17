@@ -1,6 +1,22 @@
 NAME
     IO::Event - Tied Filehandles for Nonblocking IO with Object Callbacks
 
+SYNOPSIS
+     use IO::Event;
+     use IO::Event 'emulate_Event';
+
+     my $ioe = IO::Event->new($filehandle);
+
+     my $ioe = IO::Event::Socket::INET->new( [ARGS] )
+
+     my $ioe = IO::Event::Socket::UNIX->new( [ARGS] )
+
+     my $timer = IO::Event->timer(interval => $seconds);
+
+     IO::Event::loop();
+
+     IO::Event::unloop_all();
+
 DESCRIPTION
     IO::Event provides a object-based callback system for handling
     nonblocking IO. The design goal is to provide a system that just does
@@ -13,8 +29,11 @@ DESCRIPTION
     Most of the time file handling syntax will work fine: "<$filehandle>"
     and "print $filehandle 'stuff'".
 
-    After initial setup, call "Event::loop()". The callbacks are dispatched
-    through Event.
+    After initial setup, call "IO::Event::loop()".
+
+    IO::Event was originally written to use Event. It turns out that Event
+    has bugs and now IO::Event can provide it's own select loop instead of
+    using the one from Event.
 
 CONSTRUCTORS
     IO::Event->new($filehandle, [ $handler, [ $options ]])
@@ -257,6 +276,7 @@ METHODS
     ->drain()
         Used to start looking for write-ready events on the underlying
         filehandle. In normal operation this is handled automatically.
+        Deprecated: use writeevents(1) instead.
 
     ->reentrant($reentrant)
         Get/set reentrant callbacks. By default, IO::Event avoids making
@@ -315,6 +335,39 @@ SYSREAD and EOF
     On the other hand, at the current time no problems with syswrite have
     come to light and IO::Event uses syswrite and never any other form of
     write/print etc.
+
+AVOIDING Event.pm
+    If you find that your IO::Event program works fine for a while and then
+    slows down or fails to receive all the events you expect, the problem
+    may be in Event. IO::Event can optionally use it's own select loop
+    instead of Event.
+
+    To use IO::Event's select loop, import "emulate_Event".
+
+     use IO::Event 'emulate_Event';
+
+    IO::Event does not provide a complete emulation of everything that Event
+    does. It provides the full timer API:
+
+     my $timer = IO::Event::timer( [ARGS] )
+
+    instead of
+
+     my $timer = Event::timer( [ARGS] )
+
+    However it does not provide timer events on filehandles, nor does it
+    provide events for signals, or variable accesses.
+
+    Use "IO::Event::loop()" instead of "Event::loop()". Use
+    "IO::Event::unloop_all()" instead of "Event::unloop_all()". It does not
+    provide any other methods or functions from Event. If you need them,
+    please send a patch.
+
+    IO::Event's definition for "loop()", "timer()", and "unloop_all()"
+    defaults to the Event version unless "emulate_Event" has been imported.
+    This allows you to easily switch back and forth between Event's
+    dispatcher and IO::Event's version. IO::Event's version is generally
+    lower performance but it seems to be more reliable.
 
 DATA STRUCTURE
     The filehandle object itself is a funny kind of hash reference. If you

@@ -1,6 +1,5 @@
 package Test::XMultiFork;
 
-use Event;
 use IO::Event;
 use IO::Handle;
 require POSIX;
@@ -101,7 +100,7 @@ sub dofork
 			}
 		}
 	}
-	if (Event::loop(5) == 7.3) {
+	if (IO::Event::loop(5) == 7.3) {
 		# great
 		notokay(0, "clean shutdown");
 	} else {
@@ -190,7 +189,7 @@ sub ie_eof
 	} 
 	$ie->close();
 	delete $capture{$self->{code}};
-	Event::unloop_all(7.3) unless %capture;
+	IO::Event::unloop_all(7.3) unless %capture;
 }
 
 package TheTest;

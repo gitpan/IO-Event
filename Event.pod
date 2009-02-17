@@ -3,6 +3,23 @@
 
 IO::Event - Tied Filehandles for Nonblocking IO with Object Callbacks
 
+=head1 SYNOPSIS
+
+ use IO::Event;
+ use IO::Event 'emulate_Event';
+
+ my $ioe = IO::Event->new($filehandle);
+
+ my $ioe = IO::Event::Socket::INET->new( [ARGS] )
+
+ my $ioe = IO::Event::Socket::UNIX->new( [ARGS] )
+
+ my $timer = IO::Event->timer(interval => $seconds);
+
+ IO::Event::loop();
+
+ IO::Event::unloop_all();
+
 =head1 DESCRIPTION
 
 IO::Event provides a object-based callback system for
@@ -17,8 +34,11 @@ easy.  Hard things are possible.
 Most of the time file handling syntax will work fine: C<< <$filehandle> >>
 and C<print $filehandle 'stuff'>.
 
-After initial setup, call C<Event::loop()>.  The callbacks are
-dispatched through L<Event>.
+After initial setup, call C<IO::Event::loop()>.  
+
+IO::Event was originally written to use L<Event>.  It turns out that
+L<Event> has bugs and now IO::Event can provide it's own select
+loop instead of using the one from L<Event>. 
 
 =head1 CONSTRUCTORS
 
@@ -333,6 +353,7 @@ data.
 
 Used to start looking for write-ready events on the underlying
 filehandle.  In normal operation this is handled automatically.
+Deprecated: use C<writeevents(1)> instead.
 
 =item ->reentrant($reentrant)
 
@@ -400,6 +421,41 @@ if you ask it to do a sysread() it does a read() for you instead.
 On the other hand, at the current time no problems with syswrite
 have come to light and IO::Event uses syswrite and never any other
 form of write/print etc.
+
+=head1 AVOIDING Event.pm
+
+If you find that your IO::Event program works fine for a while
+and then slows down or fails to receive all the events you expect,
+the problem may be in L<Event>.   IO::Event can optionally use
+it's own select loop instead of L<Event>.  
+
+To use IO::Event's select loop, import C<emulate_Event>.
+
+ use IO::Event 'emulate_Event';
+
+IO::Event does not provide a complete emulation of everything that
+L<Event> does.  It provides the full timer API: 
+
+ my $timer = IO::Event::timer( [ARGS] )
+
+instead of
+
+ my $timer = Event::timer( [ARGS] )
+
+However it does not provide timer events on filehandles, nor does
+it provide events for signals, or variable accesses.
+
+Use C<IO::Event::loop()> instead of C<Event::loop()>.   Use 
+C<IO::Event::unloop_all()> instead of C<Event::unloop_all()>.
+It does not provide any other methods or functions from
+L<Event>.   If you need them, please send a patch.
+
+IO::Event's definition for C<loop()>, C<timer()>, and 
+C<unloop_all()> defaults to the L<Event> version unless
+C<emulate_Event> has been imported.  This allows you to
+easily switch back and forth between L<Event>'s dispatcher
+and IO::Event's version.   IO::Event's version is generally
+lower performance but it seems to be more reliable.
 
 =head1 DATA STRUCTURE
 

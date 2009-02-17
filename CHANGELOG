@@ -1,4 +1,8 @@
 
+= 2009/02/17	0.701
+
+Made the use of Event.pm optional
+
 = 2009/01/30	0.603
 
 Write buffering debugged.

@@ -128,7 +128,7 @@ my (@tests) = (
 		},
 );
 
-my $timer = Event->timer (
+my $timer = IO::Event->timer (
 	cb => \&runstuff,
 	reentrant => 0,
 	repeat => 1,
@@ -138,7 +138,7 @@ my $timer = Event->timer (
 
 okay($results, "start listening on results socket");
 
-my $r = Event::loop();
+my $r = IO::Event::loop();
 okay($r == 7, "loop finshed ($r)");
 
 okay(1, "all done");
@@ -169,7 +169,7 @@ sub runstuff
 	unless (@tests) {
 		print STDERR "runstuff: no more tests\n"
 			if $debug;
-		Event::unloop_all(7);
+		IO::Event::unloop_all(7);
 		return;
 	}
 	return if $pause && (time < $ptime + $pause);
