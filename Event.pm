@@ -12,7 +12,7 @@ use Socket;
 use Scalar::Util qw(weaken reftype);
 use Time::HiRes qw(time);
 
-our $VERSION = 0.702;
+our $VERSION = 0.703;
 our $in_callback = 0;
 
 my $debug = 0;
@@ -363,13 +363,20 @@ sub ie_dispatch_write
 				${*$self}{ie_fh}->close();
 				delete ${*$self}{ie_closerequested};
 			}
+		} elsif (${*$self}{ie_shutdownrequested}) {
+			if (! length($$obuf)) {
+				shutdown(${*$self}{ie_fh}, 1);
+				${*$self}{ie_writeclosed} = 1;
+				delete ${*$self}{ie_shutdownrequested};
+				$self->ie_invoke(0, 'ie_outputdone', $obuf, 0);
+			}
 		} else {
 			$self->ie_invoke(0, 'ie_output', $obuf, $rv);
-			last if ${*$self}{ie_writeclosed} 
+			return 1 if ${*$self}{ie_writeclosed} 
 				&& ${*$self}{ie_readclosed};
 			if (! length($$obuf)) {
-				$self->ie_invoke(0, 'ie_outputdone', $obuf);
-				last if ${*$self}{ie_writeclosed} 
+				$self->ie_invoke(0, 'ie_outputdone', $obuf, 1);
+				return 1 if ${*$self}{ie_writeclosed} 
 					&& ${*$self}{ie_readclosed};
 				if (! length($$obuf)) {
 					$self->writeevents(0);
@@ -711,8 +718,8 @@ sub getsome
 	$length = length($$ibuf)
 		unless defined $length;
 	my $tmp = substr($$ibuf, 0, $length);
-	return undef if ! length($tmp) && ! $self->eof2;
 	substr($$ibuf, 0, $length) = '';
+	return undef if ! length($tmp) && ! $self->eof2;
 	return $tmp;
 }
 
@@ -789,6 +796,35 @@ sub input_record_separator
 		print "input_record_separator($fn) = '$x'\n";
 	}
 	return $old;
+}
+
+# 0 = read
+# 1 = write
+# 2 = both
+sub shutdown
+{
+	my ($self, $what) = @_;
+	my $r;
+	if ($what == 1 || $what == 2) {
+		if (length(${*$self}{ie_obuf})) {
+			${*$self}{ie_shutdownrequested} = $what;
+			if ($what == 2) {
+				$r = shutdown(${*$self}{ie_fh}, 0) 
+			}
+		} else {
+			$r = shutdown(${*$self}{ie_fh}, $what);
+			${*$self}{ie_writeclosed} = 1;
+		}
+	} elsif ($what == 0) {
+		$r = shutdown(${*$self}{ie_fh}, 0);
+	} else {
+		die;
+	}
+	if ($what == 0 || $what == 2) {
+		${*$self}{ie_readclosed} = 1;
+	}
+	return 1 unless defined($r);
+	return $r;
 }
 
 # from IO::Handle
@@ -1038,7 +1074,6 @@ sub getlines
 		}
 	} else {
 		# multicharacter
-		#$rxcache{$irs} = qr/(?<=\Q$irs\E)/
 		$rxcache{$irs} = qr/(.*?\Q$irs\E)/s
 			unless exists $rxcache{$irs};
 		my $irsrx = $rxcache{$irs};
@@ -1098,6 +1133,11 @@ sub print
 		if (defined($rv) && $rv < length($data)) {
 			$$obuf = substr($data, $rv, length($data)-$rv);
 			$self->writeevents(1);
+			$rv = 1;
+		} elsif ((! defined $rv) && $! == EAGAIN) {
+			$$obuf = $data;
+			$self->writeevents(1);
+			$rv = 1;
 		} else {
 			$er = 0+$!;
 		}
