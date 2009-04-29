@@ -12,7 +12,7 @@ use Socket;
 use Scalar::Util qw(weaken reftype);
 use Time::HiRes qw(time);
 
-our $VERSION = 0.701;
+our $VERSION = 0.702;
 our $in_callback = 0;
 
 my $debug = 0;
@@ -711,8 +711,8 @@ sub getsome
 	$length = length($$ibuf)
 		unless defined $length;
 	my $tmp = substr($$ibuf, 0, $length);
-	substr($$ibuf, 0, $length) = '';
 	return undef if ! length($tmp) && ! $self->eof2;
+	substr($$ibuf, 0, $length) = '';
 	return $tmp;
 }
 

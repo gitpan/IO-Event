@@ -176,6 +176,7 @@ METHODS
             syswrite
             print
             eof
+            shutdown
 
     Through AUTOLOAD (see the SUBSTITUTED METHODS section) methods are
     passed to underlying "Event" objects:
@@ -397,7 +398,8 @@ SEE ALSO
     and thus can be used in programs that are already using Event or POE.
 
 BUGS
-    The test suite only covers 40% of the code.
+    The test suite only covers 40% of the code. The module is used by its
+    author and seems solid.
 
 LICENSE
     Copyright (C) 2002-2009 David Muir Sharnoff <muir@idiom.org>. This

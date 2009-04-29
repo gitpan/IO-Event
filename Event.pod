@@ -227,6 +227,7 @@ methods behave like their C<IO> (mostly C<IO::Socket>) counterparts
 	syswrite
 	print
 	eof
+	shutdown
 
 Through AUTOLOAD (see the SUBSTITUTED METHODS section) methods 
 are passed to underlying C<Event> objects:
@@ -489,7 +490,8 @@ using Event or POE.
 
 =head1 BUGS
 
-The test suite only covers 40% of the code.
+The test suite only covers 40% of the code.  The module is used
+by its author and seems solid.
 
 =head1 LICENSE
 

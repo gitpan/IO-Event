@@ -1,4 +1,10 @@
 
+= 2009/04/28	0.702
+
+Added shutdown()
+
+Bugfix: writes when the OS buffer was completely full are now handled properly
+
 = 2009/02/17	0.701
 
 Made the use of Event.pm optional
