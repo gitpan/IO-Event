@@ -5,7 +5,7 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
 	'NAME'		=> 'IO::Event',
 	'DISTNAME'	=> 'IO-Event',
-	'VERSION_FROM'	=> 'Event.pm',
+	'VERSION_FROM'	=> 'lib/IO/Event.pm',
 	'EXE_FILES'	=> ['rinetd.pl'],
 	($] >= 5.005 ?
 	    ('ABSTRACT' => 'Tied Filehandles for Nonblocking IO with Object Callbacks',
@@ -32,8 +32,8 @@ sub postamble {
 
 pm_to_blib: README
 
-README: Event.pod
-\tpod2text Event.pod >README
+README: lib/IO/Event.pod
+\tpod2text lib/IO/Event.pod >README
 
 END_OF_POSTAMBLE
 }

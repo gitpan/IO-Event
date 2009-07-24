@@ -12,7 +12,7 @@ use Socket;
 use Scalar::Util qw(weaken reftype);
 use Time::HiRes qw(time);
 
-our $VERSION = 0.703;
+our $VERSION = 0.704;
 our $in_callback = 0;
 
 my $debug = 0;
