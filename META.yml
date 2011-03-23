@@ -1,19 +1,30 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         IO-Event
-version:      0.704
-version_from: lib/IO/Event.pm
-installdirs:  site
+--- #YAML:1.0
+name:               IO-Event
+version:            0.801
+abstract:           Tied Filehandles for Nonblocking IO with Object Callbacks
+author:
+    - David Muir Sharnoff <muir@idiom.com>
+license:            unknown
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
 requires:
-    Daemon::Generic:               0
-    Event:                         0.87
-    File::Flock:                   0
-    File::Slurp:                   0
-    Getopt::Long:                  0
-    IO::Handle:                    0
-    Net::Netmask:                  0
-    Test::Simple:                  0
-    Time::HiRes:                   0
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.30_01
+    Daemon::Generic:  0
+    File::Flock:      0
+    File::Slurp:      0
+    Getopt::Long:     0
+    IO::Handle:       0
+    List::MoreUtils:  0
+    Net::Netmask:     0
+    Test::Simple:     0
+    Time::HiRes:      0
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.56
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4
