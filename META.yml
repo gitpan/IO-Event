@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               IO-Event
-version:            0.802
+version:            0.803
 abstract:           Tied Filehandles for Nonblocking IO with Object Callbacks
 author:
     - David Muir Sharnoff <muir@idiom.com>
@@ -9,7 +9,8 @@ distribution_type:  module
 configure_requires:
     ExtUtils::MakeMaker:  0
 build_requires:
-    ExtUtils::MakeMaker:  0
+    AnyEvent:  0
+    Event:     0
 requires:
     Daemon::Generic:  0
     File::Flock:      0
