@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               IO-Event
-version:            0.803
+version:            0.804
 abstract:           Tied Filehandles for Nonblocking IO with Object Callbacks
 author:
     - David Muir Sharnoff <muir@idiom.com>
