@@ -1,32 +1,32 @@
---- #YAML:1.0
-name:               IO-Event
-version:            0.806
-abstract:           Tied Filehandles for Nonblocking IO with Object Callbacks
+---
+abstract: 'Tied Filehandles for Nonblocking IO with Object Callbacks'
 author:
-    - David Muir Sharnoff <muir@idiom.com>
-license:            unknown
-distribution_type:  module
-configure_requires:
-    ExtUtils::MakeMaker:  0
+  - 'David Muir Sharnoff <muir@idiom.com>'
 build_requires:
-    AnyEvent:     0
-    diagnostics:  0
-    Event:        0
-requires:
-    Daemon::Generic:  0
-    File::Flock:      0
-    File::Slurp:      0
-    Getopt::Long:     0
-    IO::Handle:       0
-    List::MoreUtils:  0
-    Net::Netmask:     0
-    Test::Simple:     0
-    Time::HiRes:      0
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.56
+  AnyEvent: 0
+  Event: 0
+  diagnostics: 0
+configure_requires:
+  ExtUtils::MakeMaker: 0
+dynamic_config: 1
+generated_by: 'ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.112150'
+license: unknown
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: IO-Event
+no_index:
+  directory:
+    - t
+    - inc
+requires:
+  Daemon::Generic: 0
+  File::Flock: 0
+  File::Slurp: 0
+  Getopt::Long: 0
+  IO::Handle: 0
+  List::MoreUtils: 0
+  Net::Netmask: 0
+  Test::Simple: 0
+  Time::HiRes: 0
+version: 0.807

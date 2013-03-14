@@ -26,3 +26,4 @@ t/multifork1.t
 t/multifork2.t
 t/multifork3.t
 t/multifork.tt
+META.json                                Module JSON meta-data (added by MakeMaker)
