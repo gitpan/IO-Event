@@ -6,7 +6,7 @@ our $sdebug = 0;
 {
 package IO::Event;
 
-our $VERSION = 0.807;
+our $VERSION = 0.808;
 
 use strict;
 no strict 'refs';
@@ -18,11 +18,13 @@ our @ISA;
 
 sub idle
 {
+	IO::Event->import('no_emulate_Event') unless $base;
 	&{$base . "::idle"}(@_);
 }
 
 sub loop
 {
+	IO::Event->import('no_emulate_Event') unless $base;
 	&{$base . "::loop"}(@_);
 }
 
@@ -39,6 +41,7 @@ sub unloop_all
 sub timer
 {
 	shift;
+	IO::Event->import('no_emulate_Event') unless $base;
 	$base->timer(@_);
 }
 
@@ -1141,6 +1144,14 @@ sub READLINE
 {
 	my $self = shift;
 	wantarray ? $self->getlines : $self->getline;
+}
+
+sub ie_desc
+{
+	my ($self, $new) = @_;
+	my $r = ${*$self}{ie_desc} || "no description";
+	${*$self}{ie_desc} = $new if defined $new;
+	return $r;
 }
 
 no warnings;

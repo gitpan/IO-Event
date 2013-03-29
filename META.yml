@@ -29,4 +29,4 @@ requires:
   Net::Netmask: 0
   Test::Simple: 0
   Time::HiRes: 0
-version: 0.807
+version: 0.808
