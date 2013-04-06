@@ -1,10 +1,11 @@
 ---
 abstract: 'Tied Filehandles for Nonblocking IO with Object Callbacks'
 author:
-  - 'David Muir Sharnoff <muir@idiom.com>'
+  - 'David Muir Sharnoff <cpan@dave.sharnoff.org>'
 build_requires:
   AnyEvent: 0
   Event: 0
+  Test::Simple: 0
   diagnostics: 0
 configure_requires:
   ExtUtils::MakeMaker: 0
@@ -20,13 +21,8 @@ no_index:
     - t
     - inc
 requires:
-  Daemon::Generic: 0
-  File::Flock: 0
-  File::Slurp: 0
-  Getopt::Long: 0
   IO::Handle: 0
-  List::MoreUtils: 0
-  Net::Netmask: 0
-  Test::Simple: 0
   Time::HiRes: 0
-version: 0.808
+resources:
+  repository: http://github.com/muir/File-Flock
+version: 0.809
