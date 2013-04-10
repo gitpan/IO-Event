@@ -22,7 +22,8 @@ no_index:
     - inc
 requires:
   IO::Handle: 0
+  List::MoreUtils: 0
   Time::HiRes: 0
 resources:
   repository: http://github.com/muir/File-Flock
-version: 0.809
+version: 0.811

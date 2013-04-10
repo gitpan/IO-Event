@@ -1,4 +1,6 @@
 
+Added missing depenency on List::MoreUtils
+
 = 2013/04/04
 
 Remove rinetd.pl -- becoming its own module
