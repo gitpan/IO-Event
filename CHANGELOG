@@ -1,3 +1,6 @@
+= 2013/04/09 0.812
+
+Missing peerpath on FreeBSD 9 will die().  Work around.
 
 Added missing depenency on List::MoreUtils
 
