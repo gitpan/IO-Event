@@ -213,7 +213,7 @@ called arises.
 =item ie_input($handler, $ioe, $input_buffer_reference)
 
 Invoked when there is fresh data in the input buffer.  The 
-input can be retreived via directly reading it from
+input can be retrieved via directly reading it from
 C<$$input_buffer_reference> or via C<read()> from the
 $ioe filehandle, or by using a variety of standard
 methods for getting data: 
@@ -585,7 +585,7 @@ This dispatch is now deprecated with the choice of event handlers.
 
 =head1 SYSREAD and EOF
 
-sysread() is incompatable with eof() because eof() uses
+sysread() is incompatible with eof() because eof() uses
 getc().  Most of the time this isn't a problem.  In other words,
 some of the time this is a problem: lines go missing.
 
@@ -654,6 +654,7 @@ by its author and seems solid.
 =head1 LICENSE
 
 Copyright (C) 2002-2009 David Muir Sharnoff <muir@idiom.org>.
-Copyright (C) 2011 Google, Inc.
+Copyright (C) 2011-2013 Google, Inc.
 This module may be used/copied/etc on the same terms as Perl itself.
 
+This module is packaged for Fedora by Emmanuel Seyman <emmanuel@seyman.fr>

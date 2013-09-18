@@ -26,4 +26,4 @@ requires:
   Time::HiRes: 0
 resources:
   repository: http://github.com/muir/File-Flock
-version: 0.812
+version: 0.813
